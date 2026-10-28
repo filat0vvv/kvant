@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Фикс resValue)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Отключение Google Services)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -48,7 +48,7 @@ jobs:
           channel = os.environ["CHANNEL"].lstrip("@")
           link = os.environ["LINK"]
 
-          # 1. Создаем модуль автоматического поиска и включения прокси (работа без VPN)
+          # 1. Создаем модуль авто-прокси
           auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
           auto_proxy_code = """package org.telegram.messenger;
 
@@ -163,7 +163,7 @@ jobs:
           with open(auto_proxy_path, "w", encoding="utf-8") as f:
               f.write(auto_proxy_code)
 
-          # 2. Подключаем автозапуск прокси при старте приложения
+          # 2. Подключаем автозапуск прокси при старте
           shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
           if os.path.exists(shared_cfg):
               with open(shared_cfg, "r", encoding="utf-8") as f:
@@ -172,65 +172,51 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 3. Исправляем buildConfigField и resValue в TMessagesProj/build.gradle
+          # 3. Фиксируем build.gradle и отключаем google-services плагин, чтобы он не выдавал ошибок
           bg_path = f"{root}/TMessagesProj/build.gradle"
           with open(bg_path, "r", encoding="utf-8") as f:
-              lines = f.readlines()
+              bg = f.read()
+
+          # Удаляем плагин google-services
+          bg = bg.replace("apply plugin: 'com.google.gms.google-services'", "// apply plugin: 'com.google.gms.google-services'")
+          bg = bg.replace('id "com.google.gms.google-services"', '// id "com.google.gms.google-services"')
 
           new_lines = []
-          for line in lines:
-              # Заменяем buildConfigField
+          for line in bg.splitlines():
               m = re.match(r'^(\s*)buildConfigField\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
               if m:
                   indent, ftype, fname = m.group(1), m.group(2).strip(), m.group(3).strip()
-                  if fname == "APP_ID":
-                      val = '"4"'
-                  elif fname == "APP_HASH":
-                      val = '"\\"014b35b6184100b085b0d0572f9b5103\\""'
-                  elif ftype == "boolean":
-                      val = '"false"'
-                  elif ftype in ("int", "long"):
-                      val = '"0"'
-                  else:
-                      val = '"\\"\\""'
-                  new_lines.append(f'{indent}buildConfigField "{ftype}", "{fname}", {val}\n')
+                  if fname == "APP_ID": val = '"4"'
+                  elif fname == "APP_HASH": val = '"\\"014b35b6184100b085b0d0572f9b5103\\""'
+                  elif ftype == "boolean": val = '"false"'
+                  elif ftype in ("int", "long"): val = '"0"'
+                  else: val = '"\\"\\""'
+                  new_lines.append(f'{indent}buildConfigField "{ftype}", "{fname}", {val}')
                   continue
 
-              # Заменяем resValue, чтобы не было ошибки non-null is null
               mr = re.match(r'^(\s*)resValue\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
               if mr:
                   indent, rtype, rname = mr.group(1), mr.group(2).strip(), mr.group(3).strip()
-                  new_lines.append(f'{indent}resValue "{rtype}", "{rname}", "\\"\\""\n')
+                  new_lines.append(f'{indent}resValue "{rtype}", "{rname}", "\\"\\""')
                   continue
 
-              # Фиксируем ключи подписи
               if re.match(r'^\s*storeFile\s+', line):
-                  indent = re.match(r'^(\s*)', line).group(1)
-                  new_lines.append(f'{indent}storeFile file("config/release.keystore")\n')
+                  new_lines.append('        storeFile file("config/release.keystore")')
                   continue
               if re.match(r'^\s*storePassword\s+', line):
-                  indent = re.match(r'^(\s*)', line).group(1)
-                  new_lines.append(f'{indent}storePassword "kvant123"\n')
+                  new_lines.append('        storePassword "kvant123"')
                   continue
               if re.match(r'^\s*keyAlias\s+', line):
-                  indent = re.match(r'^(\s*)', line).group(1)
-                  new_lines.append(f'{indent}keyAlias "release"\n')
+                  new_lines.append('        keyAlias "release"')
                   continue
               if re.match(r'^\s*keyPassword\s+', line):
-                  indent = re.match(r'^(\s*)', line).group(1)
-                  new_lines.append(f'{indent}keyPassword "kvant123"\n')
+                  new_lines.append('        keyPassword "kvant123"')
                   continue
 
               new_lines.append(line)
 
           with open(bg_path, "w", encoding="utf-8") as f:
-              f.writelines(new_lines)
-
-          # Записываем значения в local.properties
-          props_content = "APP_ID=4\nAPP_HASH=014b35b6184100b085b0d0572f9b5103\n"
-          for pfile in [f"{root}/local.properties", f"{root}/TMessagesProj/local.properties"]:
-              with open(pfile, "w", encoding="utf-8") as f:
-                  f.write(props_content)
+              f.write("\n".join(new_lines))
 
           # 4. Меняем название приложения на Kvant
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
@@ -241,8 +227,8 @@ jobs:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
 
-          # 5. Меняем applicationId
-          for target in glob.glob(f"{root}/**/build.gradle*", recursive=True) + glob.glob(f"{root}/**/google-services.json", recursive=True):
+          # 5. Меняем applicationId везде
+          for target in glob.glob(f"{root}/**/build.gradle*", recursive=True):
               with open(target, "r", encoding="utf-8") as f:
                   t = f.read()
               t_new = t.replace('"com.exteragram.messenger"', f'"{app_id}"').replace("'com.exteragram.messenger'", f"'{app_id}'")
