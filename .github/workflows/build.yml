@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Твои ссылки)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Фикс build.gradle)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -172,7 +172,58 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 3. Меняем название приложения на Kvant во всех языковых файлах
+          # 3. Исправляем buildConfigField и подпись в TMessagesProj/build.gradle
+          bg_path = f"{root}/TMessagesProj/build.gradle"
+          with open(bg_path, "r", encoding="utf-8") as f:
+              bg = f.read()
+
+          # Находим все ключи getProps(...) и записываем их в local.properties, чтобы ни один не был null
+          all_props = set(re.findall(r'getProps\(\s*["\']([^"\']+)["\']\s*\)', bg))
+
+          def fix_build_config(match):
+              ftype = match.group(1)
+              fname = match.group(2)
+              fval = match.group(3).strip()
+              if "getProps" in fval or "System.getenv" in fval or "findProperty" in fval:
+                  if fname == "APP_ID":
+                      return f'buildConfigField "{ftype}", "{fname}", "4"'
+                  elif fname == "APP_HASH":
+                      return f'buildConfigField "{ftype}", "{fname}", "\\"014b35b6184100b085b0d0572f9b5103\\""'
+                  elif ftype == "String":
+                      return f'buildConfigField "{ftype}", "{fname}", "\\"\\""'
+                  elif ftype == "boolean":
+                      return f'buildConfigField "{ftype}", "{fname}", "false"'
+                  else:
+                      return f'buildConfigField "{ftype}", "{fname}", "0"'
+              return match.group(0)
+
+          bg = re.sub(r'buildConfigField\s+["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*([^\n\r]+)', fix_build_config, bg)
+          with open(bg_path, "w", encoding="utf-8") as f:
+              f.write(bg)
+
+          # Создаем полный local.properties со всеми найденными ключами
+          props_lines = [
+              "APP_ID=4",
+              "APP_HASH=014b35b6184100b085b0d0572f9b5103",
+              "SIGNING_KEY_PASSWORD=kvant123",
+              "SIGNING_KEY_ALIAS=release",
+              "SIGNING_KEY_STORE_PASSWORD=kvant123"
+          ]
+          existing_keys = {"APP_ID", "APP_HASH", "SIGNING_KEY_PASSWORD", "SIGNING_KEY_ALIAS", "SIGNING_KEY_STORE_PASSWORD"}
+          for k in all_props:
+              if k not in existing_keys:
+                  if "PASS" in k.upper():
+                      props_lines.append(f"{k}=kvant123")
+                  elif "ALIAS" in k.upper():
+                      props_lines.append(f"{k}=release")
+                  else:
+                      props_lines.append(f'{k}=""')
+
+          for prop_file in [f"{root}/local.properties", f"{root}/TMessagesProj/local.properties"]:
+              with open(prop_file, "w", encoding="utf-8") as f:
+                  f.write("\n".join(props_lines) + "\n")
+
+          # 4. Меняем название приложения на Kvant во всех языковых файлах
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
               with open(xml_file, "r", encoding="utf-8") as f:
                   txt = f.read()
@@ -181,16 +232,16 @@ jobs:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
 
-          # 4. Меняем applicationId в build.gradle и google-services.json
+          # 5. Меняем applicationId в build.gradle и google-services.json
           for target in glob.glob(f"{root}/**/build.gradle*", recursive=True) + glob.glob(f"{root}/**/google-services.json", recursive=True):
               with open(target, "r", encoding="utf-8") as f:
                   t = f.read()
-              t_new = t.replace('"com.exteragram.messenger"', f'"{app_id}"').replace("'com.exteragram.messenger'", f"'{app_id}'")
+              t_new = t.replace("com.exteragram.messenger", app_id)
               if t_new != t:
                   with open(target, "w", encoding="utf-8") as f:
                       f.write(t_new)
 
-          # 5. Заменяем ссылки разработчиков на твои
+          # 6. Заменяем ссылки разработчиков на твои
           for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/com/exteragram/**/*.java", recursive=True):
               with open(java_file, "r", encoding="utf-8") as f:
                   j = f.read()
@@ -207,7 +258,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 5. Генерация подписи APK и API-ключей
+      - name: 5. Генерация подписи APK
         working-directory: source_code
         run: |
           mkdir -p TMessagesProj/config
@@ -216,19 +267,11 @@ jobs:
             -storepass kvant123 -keypass kvant123 \
             -dname "CN=Kvant, OU=Mobile, O=Kvant, L=City, S=State, C=US"
 
-          cat <<EOF >> local.properties
-          APP_ID=4
-          APP_HASH=014b35b6184100b085b0d0572f9b5103
-          SIGNING_KEY_PASSWORD=kvant123
-          SIGNING_KEY_ALIAS=release
-          SIGNING_KEY_STORE_PASSWORD=kvant123
-          EOF
-
       - name: 6. Компиляция Kvant APK
         working-directory: source_code
         run: |
           chmod +x gradlew
-          ./gradlew assembleAfatRelease --no-daemon
+          ./gradlew assembleAfatRelease --no-daemon --no-configuration-cache
 
       - name: 7. Выгрузка готового Kvant.apk
         uses: actions/upload-artifact@v4
