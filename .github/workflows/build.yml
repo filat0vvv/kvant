@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Отключение Google Services)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси + Фикс отсутствующих пакетов Boost/Encryption)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -172,12 +172,11 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 3. Фиксируем build.gradle и отключаем google-services плагин, чтобы он не выдавал ошибок
+          # 3. Фиксируем build.gradle и отключаем google-services плагин
           bg_path = f"{root}/TMessagesProj/build.gradle"
           with open(bg_path, "r", encoding="utf-8") as f:
               bg = f.read()
 
-          # Удаляем плагин google-services
           bg = bg.replace("apply plugin: 'com.google.gms.google-services'", "// apply plugin: 'com.google.gms.google-services'")
           bg = bg.replace('id "com.google.gms.google-services"', '// id "com.google.gms.google-services"')
 
@@ -218,27 +217,43 @@ jobs:
           with open(bg_path, "w", encoding="utf-8") as f:
               f.write("\n".join(new_lines))
 
-          # 4. Меняем название приложения на Kvant
+          # 4. Вычищаем вызовы отсутствующих пакетов Boost/Encryption/Zalgo, чтобы компилятор не падал
+          for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/**/*.java", recursive=True):
+              with open(java_file, "r", encoding="utf-8", errors="ignore") as f:
+                  jf = f.read()
+              
+              if "exteragram.messenger.boost" in jf or "ZalgoFilter" in jf or "EncryptionHelper" in jf or "BoostController" in jf:
+                  # Удаляем импорты несуществующих пакетов
+                  jf = re.sub(r'import\s+com\.exteragram\.messenger\.boost[^\r\n]*;', '', jf)
+                  # Заменяем обращения к EncryptionHelper/BoostController/Zalgo заглушками
+                  jf = jf.replace("ZalgoFilter.filterMessage", "")
+                  jf = jf.replace("BoostController.isUserBooster()", "false")
+                  jf = re.sub(r'EncryptionHelper\.[a-zA-Z0-9_]+\([^)]*\)', 'null', jf)
+                  
+                  with open(java_file, "w", encoding="utf-8") as f:
+                      f.write(jf)
+
+          # 5. Меняем название приложения на Kvant
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
-              with open(xml_file, "r", encoding="utf-8") as f:
+              with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
                   txt = f.read()
               new_txt = re.sub(r'>exteraGram(\s*Beta)?<', f'>{app_name}<', txt, flags=re.IGNORECASE)
               if new_txt != txt:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
 
-          # 5. Меняем applicationId везде
+          # 6. Меняем applicationId везде
           for target in glob.glob(f"{root}/**/build.gradle*", recursive=True):
-              with open(target, "r", encoding="utf-8") as f:
+              with open(target, "r", encoding="utf-8", errors="ignore") as f:
                   t = f.read()
               t_new = t.replace('"com.exteragram.messenger"', f'"{app_id}"').replace("'com.exteragram.messenger'", f"'{app_id}'")
               if t_new != t:
                   with open(target, "w", encoding="utf-8") as f:
                       f.write(t_new)
 
-          # 6. Заменяем ссылки разработчиков
-          for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/com/exteragram/**/*.java", recursive=True):
-              with open(java_file, "r", encoding="utf-8") as f:
+          # 7. Заменяем ссылки разработчиков
+          for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/**/*.java", recursive=True):
+              with open(java_file, "r", encoding="utf-8", errors="ignore") as f:
                   j = f.read()
               j_new = j.replace('"exteragram"', f'"{channel}"').replace('"exteraSquad"', f'"{channel}"')
               j_new = j_new.replace("https://exteragram.app", link)
