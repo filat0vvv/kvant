@@ -20,232 +20,39 @@ on:
         required: false
         default: 'https://t.me/kvant_official'
 
+permissions:
+  contents: read
+
 jobs:
   build-kvant:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - name: 1. Очистка места на сервере под сборку C++ (NDK)
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+      - uses: actions/checkout@v4
 
-      - name: 2. Скачивание чистой базы exteraGram
+      - name: 1. Освобождение места для NDK
         run: |
-          git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Отключение Google Services)
+      - name: 2. Скачивание зафиксированной базы exteraGram
+        env:
+          UPSTREAM_REVISION: 6f78031aafd7f27e0dfaa31a207715569a6df1a2
+        run: |
+          git init source_code
+          git -C source_code remote add origin https://github.com/exteraSquad/exteraGram.git
+          git -C source_code fetch --depth 1 origin "$UPSTREAM_REVISION"
+          git -C source_code checkout --detach FETCH_HEAD
+          git -C source_code submodule update --init --recursive
+
+      - name: 3. Настройка Kvant и авто-прокси
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
           CHANNEL: ${{ github.event.inputs.custom_channel || 'kvant_official' }}
           LINK: ${{ github.event.inputs.custom_link || 'https://t.me/kvant_official' }}
-        run: |
-          python3 - << 'EOF'
-          import os, re, glob
-
-          root = "source_code"
-          app_name = os.environ["APP_NAME"]
-          app_id = os.environ["APP_ID"]
-          channel = os.environ["CHANNEL"].lstrip("@")
-          link = os.environ["LINK"]
-
-          # 1. Создаем модуль авто-прокси
-          auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
-          auto_proxy_code = """package org.telegram.messenger;
-
-          import android.app.Activity;
-          import android.content.SharedPreferences;
-          import android.net.Uri;
-          import android.text.TextUtils;
-          import org.json.JSONArray;
-          import org.json.JSONObject;
-          import org.telegram.tgnet.ConnectionsManager;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
-          import java.net.HttpURLConnection;
-          import java.net.URL;
-          import java.util.ArrayList;
-          import java.util.List;
-          import java.util.concurrent.atomic.AtomicBoolean;
-
-          public class AutoProxyManager {
-              private static final String[] JSON_SOURCES = new String[]{
-                  "https://cdn.jsdelivr.net/gh/hookzof/socks5_list@master/tg/mtproto.json"
-              };
-              private static final String[] TXT_SOURCES = new String[]{
-                  "https://cdn.jsdelivr.net/gh/soroushmirzaei/telegram-proxies-collector@main/proxies/mtproto",
-                  "https://raw.githubusercontent.com/ALIILAPRO/MTProtoProxy/main/mtproto.txt"
-              };
-
-              private static final AtomicBoolean isRunning = new AtomicBoolean(false);
-              private static final AtomicBoolean proxyApplied = new AtomicBoolean(false);
-
-              public static void start() {
-                  if (isRunning.getAndSet(true)) return;
-                  Utilities.globalQueue.postRunnable(() -> {
-                      List<SharedConfig.ProxyInfo> list = new ArrayList<>();
-                      for (String src : JSON_SOURCES) {
-                          try {
-                              String res = fetchUrl(src);
-                              if (!TextUtils.isEmpty(res)) {
-                                  JSONArray arr = new JSONArray(res);
-                                  for (int i = 0; i < arr.length() && list.size() < 25; i++) {
-                                      JSONObject o = arr.getJSONObject(i);
-                                      String host = o.optString("host");
-                                      int port = o.optInt("port", 443);
-                                      String secret = o.optString("secret");
-                                      if (!TextUtils.isEmpty(host) && !TextUtils.isEmpty(secret)) {
-                                          list.add(new SharedConfig.ProxyInfo(host, port, "", "", secret));
-                                      }
-                                  }
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                      for (String src : TXT_SOURCES) {
-                          if (list.size() >= 30) break;
-                          try {
-                              String res = fetchUrl(src);
-                              if (!TextUtils.isEmpty(res)) {
-                                  for (String line : res.split("\\n")) {
-                                      if (list.size() >= 30) break;
-                                      line = line.trim();
-                                      if (line.startsWith("tg://proxy") || line.startsWith("https://t.me/proxy")) {
-                                          Uri u = Uri.parse(line);
-                                          String s = u.getQueryParameter("server");
-                                          String p = u.getQueryParameter("port");
-                                          String sec = u.getQueryParameter("secret");
-                                          if (!TextUtils.isEmpty(s) && !TextUtils.isEmpty(p) && !TextUtils.isEmpty(sec)) {
-                                              list.add(new SharedConfig.ProxyInfo(s, Integer.parseInt(p), "", "", sec));
-                                          }
-                                      }
-                                  }
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                      proxyApplied.set(false);
-                      for (SharedConfig.ProxyInfo p : list) {
-                          ConnectionsManager.getInstance(0).checkProxy(p.address, p.port, "", "", p.secret, time -> {
-                              if (time > 0 && time < 1500 && !proxyApplied.getAndSet(true)) {
-                                  AndroidUtilities.runOnUIThread(() -> {
-                                      SharedConfig.addProxy(p);
-                                      SharedConfig.currentProxy = p;
-                                      SharedPreferences prefs = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                      prefs.edit()
-                                          .putBoolean("proxy_enabled", true)
-                                          .putString("proxy_ip", p.address)
-                                          .putInt("proxy_port", p.port)
-                                          .putString("proxy_user", "")
-                                          .putString("proxy_pass", "")
-                                          .putString("proxy_secret", p.secret)
-                                          .apply();
-                                      ConnectionsManager.setProxySettings(true, p.address, p.port, "", "", p.secret);
-                                  });
-                              }
-                          });
-                      }
-                      isRunning.set(false);
-                  });
-              }
-
-              private static String fetchUrl(String urlStr) throws Exception {
-                  HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
-                  c.setConnectTimeout(5000);
-                  c.setReadTimeout(5000);
-                  if (c.getResponseCode() != 200) return null;
-                  BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
-                  StringBuilder sb = new StringBuilder();
-                  String l;
-                  while ((l = r.readLine()) != null) sb.append(l).append("\\n");
-                  r.close();
-                  return sb.toString();
-              }
-          }
-          """
-          with open(auto_proxy_path, "w", encoding="utf-8") as f:
-              f.write(auto_proxy_code)
-
-          # 2. Подключаем автозапуск прокси при старте
-          shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
-          if os.path.exists(shared_cfg):
-              with open(shared_cfg, "r", encoding="utf-8") as f:
-                  sc = f.read()
-              sc = sc.replace("proxyListLoaded = true;", "proxyListLoaded = true;\n            AutoProxyManager.start();", 1)
-              with open(shared_cfg, "w", encoding="utf-8") as f:
-                  f.write(sc)
-
-          # 3. Фиксируем build.gradle и отключаем google-services плагин, чтобы он не выдавал ошибок
-          bg_path = f"{root}/TMessagesProj/build.gradle"
-          with open(bg_path, "r", encoding="utf-8") as f:
-              bg = f.read()
-
-          # Удаляем плагин google-services
-          bg = bg.replace("apply plugin: 'com.google.gms.google-services'", "// apply plugin: 'com.google.gms.google-services'")
-          bg = bg.replace('id "com.google.gms.google-services"', '// id "com.google.gms.google-services"')
-
-          new_lines = []
-          for line in bg.splitlines():
-              m = re.match(r'^(\s*)buildConfigField\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
-              if m:
-                  indent, ftype, fname = m.group(1), m.group(2).strip(), m.group(3).strip()
-                  if fname == "APP_ID": val = '"4"'
-                  elif fname == "APP_HASH": val = '"\\"014b35b6184100b085b0d0572f9b5103\\""'
-                  elif ftype == "boolean": val = '"false"'
-                  elif ftype in ("int", "long"): val = '"0"'
-                  else: val = '"\\"\\""'
-                  new_lines.append(f'{indent}buildConfigField "{ftype}", "{fname}", {val}')
-                  continue
-
-              mr = re.match(r'^(\s*)resValue\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
-              if mr:
-                  indent, rtype, rname = mr.group(1), mr.group(2).strip(), mr.group(3).strip()
-                  new_lines.append(f'{indent}resValue "{rtype}", "{rname}", "\\"\\""')
-                  continue
-
-              if re.match(r'^\s*storeFile\s+', line):
-                  new_lines.append('        storeFile file("config/release.keystore")')
-                  continue
-              if re.match(r'^\s*storePassword\s+', line):
-                  new_lines.append('        storePassword "kvant123"')
-                  continue
-              if re.match(r'^\s*keyAlias\s+', line):
-                  new_lines.append('        keyAlias "release"')
-                  continue
-              if re.match(r'^\s*keyPassword\s+', line):
-                  new_lines.append('        keyPassword "kvant123"')
-                  continue
-
-              new_lines.append(line)
-
-          with open(bg_path, "w", encoding="utf-8") as f:
-              f.write("\n".join(new_lines))
-
-          # 4. Меняем название приложения на Kvant
-          for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
-              with open(xml_file, "r", encoding="utf-8") as f:
-                  txt = f.read()
-              new_txt = re.sub(r'>exteraGram(\s*Beta)?<', f'>{app_name}<', txt, flags=re.IGNORECASE)
-              if new_txt != txt:
-                  with open(xml_file, "w", encoding="utf-8") as f:
-                      f.write(new_txt)
-
-          # 5. Меняем applicationId везде
-          for target in glob.glob(f"{root}/**/build.gradle*", recursive=True):
-              with open(target, "r", encoding="utf-8") as f:
-                  t = f.read()
-              t_new = t.replace('"com.exteragram.messenger"', f'"{app_id}"').replace("'com.exteragram.messenger'", f"'{app_id}'")
-              if t_new != t:
-                  with open(target, "w", encoding="utf-8") as f:
-                      f.write(t_new)
-
-          # 6. Заменяем ссылки разработчиков
-          for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/com/exteragram/**/*.java", recursive=True):
-              with open(java_file, "r", encoding="utf-8") as f:
-                  j = f.read()
-              j_new = j.replace('"exteragram"', f'"{channel}"').replace('"exteraSquad"', f'"{channel}"')
-              j_new = j_new.replace("https://exteragram.app", link)
-              if j_new != j:
-                  with open(java_file, "w", encoding="utf-8") as f:
-                      f.write(j_new)
-          EOF
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: python3 .github/scripts/patch_kvant.py
 
       - name: 4. Настройка Java 17
         uses: actions/setup-java@v4
@@ -266,10 +73,11 @@ jobs:
         working-directory: source_code
         run: |
           chmod +x gradlew
-          ./gradlew assembleAfatRelease --no-daemon
+          ./gradlew assembleAfatRelease --no-daemon --no-configuration-cache --stacktrace
 
       - name: 7. Выгрузка готового Kvant.apk
         uses: actions/upload-artifact@v4
         with:
+          if-no-files-found: error
           name: Kvant-Android-APK
           path: source_code/TMessagesProj/build/outputs/apk/afat/release/*.apk
