@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Полный фикс build.gradle)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси без VPN + Фикс resValue)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -138,7 +138,6 @@ jobs:
                                           .putString("proxy_secret", p.secret)
                                           .apply();
                                       ConnectionsManager.setProxySettings(true, p.address, p.port, "", "", p.secret);
-                                      NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
                                   });
                               }
                           });
@@ -173,34 +172,38 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 3. Полностью переписываем все buildConfigField и signingConfigs в TMessagesProj/build.gradle
+          # 3. Исправляем buildConfigField и resValue в TMessagesProj/build.gradle
           bg_path = f"{root}/TMessagesProj/build.gradle"
           with open(bg_path, "r", encoding="utf-8") as f:
               lines = f.readlines()
 
           new_lines = []
           for line in lines:
-              # Безусловно заменяем любой buildConfigField (со скобками или без, с любыми переменными)
+              # Заменяем buildConfigField
               m = re.match(r'^(\s*)buildConfigField\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
               if m:
-                  indent, ftype, fname, rest = m.group(1), m.group(2).strip(), m.group(3).strip(), m.group(4).strip()
+                  indent, ftype, fname = m.group(1), m.group(2).strip(), m.group(3).strip()
                   if fname == "APP_ID":
                       val = '"4"'
                   elif fname == "APP_HASH":
                       val = '"\\"014b35b6184100b085b0d0572f9b5103\\""'
                   elif ftype == "boolean":
-                      val = '"true"' if 'true' in rest.lower() else '"false"'
-                  elif ftype in ("int", "long", "short", "byte"):
-                      nums = re.findall(r'\d+', rest)
-                      val = f'"{nums[0]}"' if nums else '"0"'
-                  elif ftype in ("float", "double"):
-                      val = '"0.0f"'
+                      val = '"false"'
+                  elif ftype in ("int", "long"):
+                      val = '"0"'
                   else:
                       val = '"\\"\\""'
                   new_lines.append(f'{indent}buildConfigField "{ftype}", "{fname}", {val}\n')
                   continue
 
-              # Жестко фиксируем ключи подписи, чтобы Gradle не искал их во внешних файлах
+              # Заменяем resValue, чтобы не было ошибки non-null is null
+              mr = re.match(r'^(\s*)resValue\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
+              if mr:
+                  indent, rtype, rname = mr.group(1), mr.group(2).strip(), mr.group(3).strip()
+                  new_lines.append(f'{indent}resValue "{rtype}", "{rname}", "\\"\\""\n')
+                  continue
+
+              # Фиксируем ключи подписи
               if re.match(r'^\s*storeFile\s+', line):
                   indent = re.match(r'^(\s*)', line).group(1)
                   new_lines.append(f'{indent}storeFile file("config/release.keystore")\n')
@@ -220,31 +223,16 @@ jobs:
 
               new_lines.append(line)
 
-          print("--- Проверка строк 65-100 в TMessagesProj/build.gradle после патча ---")
-          for idx, l in enumerate(new_lines[64:100], start=65):
-              print(f"{idx}: {l}", end="")
-
           with open(bg_path, "w", encoding="utf-8") as f:
               f.writelines(new_lines)
 
-          # Записываем резервные переменные в local.properties и gradle.properties
-          props_content = (
-              "APP_ID=4\n"
-              "APP_HASH=014b35b6184100b085b0d0572f9b5103\n"
-              "SIGNING_KEY_PASSWORD=kvant123\n"
-              "SIGNING_KEY_ALIAS=release\n"
-              "SIGNING_KEY_STORE_PASSWORD=kvant123\n"
-              "RELEASE_KEY_PASSWORD=kvant123\n"
-              "RELEASE_KEY_ALIAS=release\n"
-              "RELEASE_STORE_PASSWORD=kvant123\n"
-          )
-          for pfile in [f"{root}/local.properties", f"{root}/TMessagesProj/local.properties", f"{root}/API_KEYS"]:
+          # Записываем значения в local.properties
+          props_content = "APP_ID=4\nAPP_HASH=014b35b6184100b085b0d0572f9b5103\n"
+          for pfile in [f"{root}/local.properties", f"{root}/TMessagesProj/local.properties"]:
               with open(pfile, "w", encoding="utf-8") as f:
                   f.write(props_content)
-          with open(f"{root}/gradle.properties", "a", encoding="utf-8") as f:
-              f.write("\n" + props_content)
 
-          # 4. Меняем название приложения на Kvant во всех языковых файлах
+          # 4. Меняем название приложения на Kvant
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
               with open(xml_file, "r", encoding="utf-8") as f:
                   txt = f.read()
@@ -253,17 +241,16 @@ jobs:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
 
-          # 5. Меняем applicationId в build.gradle и google-services.json
+          # 5. Меняем applicationId
           for target in glob.glob(f"{root}/**/build.gradle*", recursive=True) + glob.glob(f"{root}/**/google-services.json", recursive=True):
               with open(target, "r", encoding="utf-8") as f:
                   t = f.read()
               t_new = t.replace('"com.exteragram.messenger"', f'"{app_id}"').replace("'com.exteragram.messenger'", f"'{app_id}'")
-              t_new = t_new.replace('"com.exteragram.messenger.beta"', f'"{app_id}.beta"')
               if t_new != t:
                   with open(target, "w", encoding="utf-8") as f:
                       f.write(t_new)
 
-          # 6. Заменяем ссылки разработчиков на твои
+          # 6. Заменяем ссылки разработчиков
           for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/com/exteragram/**/*.java", recursive=True):
               with open(java_file, "r", encoding="utf-8") as f:
                   j = f.read()
@@ -283,21 +270,20 @@ jobs:
       - name: 5. Генерация подписи APK
         working-directory: source_code
         run: |
-          mkdir -p TMessagesProj/config config
+          mkdir -p TMessagesProj/config
           keytool -genkey -v -keystore TMessagesProj/config/release.keystore \
             -alias release -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass kvant123 -keypass kvant123 \
             -dname "CN=Kvant, OU=Mobile, O=Kvant, L=City, S=State, C=US"
-          cp TMessagesProj/config/release.keystore config/release.keystore
 
       - name: 6. Компиляция Kvant APK
         working-directory: source_code
         run: |
           chmod +x gradlew
-          ./gradlew assembleArm64Release --no-daemon --no-configuration-cache || ./gradlew assembleAfatRelease --no-daemon --no-configuration-cache
+          ./gradlew assembleAfatRelease --no-daemon
 
       - name: 7. Выгрузка готового Kvant.apk
         uses: actions/upload-artifact@v4
         with:
           name: Kvant-Android-APK
-          path: source_code/TMessagesProj/build/outputs/apk/**/release/*.apk
+          path: source_code/TMessagesProj/build/outputs/apk/afat/release/*.apk
