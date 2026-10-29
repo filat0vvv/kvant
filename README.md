@@ -74,7 +74,11 @@
 
 Локально проверены применение патча к указанному коммиту, XML, размеры иконок,
 application ID, arm64-фильтры, конфигурация подписи и синтаксис workflow/Python.
-Полная компиляция Android и работа на телефоне **пока не проверены**.
+Полная компиляция Android завершена успешно: [запуск 40867833460](https://github.com/filat0vvv/kvant/actions/runs/40867833460).
+Проверены подпись, соответствие постоянному ключу, SHA-256, имя, package и arm64-v8a.
+APK: `kvantGram-arm64.apk`, 52 497 772 байта.
+SHA-256: `82d3c2db0ad2f08e09e4d0dc0db5990e89cc2675f1b801add76f9c82985eef0b`.
+Установка, авторизация, прокси и звонки на телефоне **пока не проверены**.
 
 База: [Telegram-FOSS](https://github.com/Telegram-FOSS-Team/Telegram-FOSS),
 лицензия GPL-2.0-or-later; текст сохранён в `LICENSE`.
