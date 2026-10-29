@@ -37,6 +37,9 @@ def apply(root):
 ''','')
     res = root/'TMessagesProj/src/main/res'
     gradle = root/'TMessagesProj/build.gradle'
+    edit(gradle,"    externalNativeBuild.cmake.path 'jni/CMakeLists.txt'",'''    externalNativeBuild {
+        cmake { path 'jni/CMakeLists.txt'; version '3.10.2' }
+    }''')
     edit(root/'gradle.properties','APP_PACKAGE=com.radolyn.ayugram','APP_PACKAGE='+package)
     edit(root/'gradle.properties','org.gradle.unsafe.configuration-cache=true','org.gradle.unsafe.configuration-cache=false')
     edit(gradle,'storeFile file("config/extera.jks")',"storeFile file(System.getenv('KVANT_KEYSTORE_PATH'))")
