@@ -101,6 +101,20 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     chat=java/'org/telegram/ui/ChatActivity.java'
     edit(chat,'com.radolyn.ayugram.proprietary.AyuHistoryHook','com.kvant.messenger.history.AyuHistoryHook')
     edit(chat,'endId, dialogId, limit, topicId, isSecretChat());','endId, dialogId, limit, topicId, isSecretChat(), load_type == 1);')
+    # A chat containing only saved deletions must also open from the local history,
+    # including when the ordinary Telegram cache is empty and there is no network.
+    edit(chat,'''                    if (isCache) {
+                        startId = minVal;
+                        endId = minVal;
+                    }''', '''                    if (isCache) {
+                        startId = minVal;
+                        endId = messages.isEmpty() ? maxVal : minVal;
+                    } else if (messages.isEmpty()) {
+                        endId = maxVal;
+                    }''')
+    edit(java/'com/radolyn/ayugram/AyuUtils.java',
+         'for (int i = messages.size() - 1; i > 0; i--) {',
+         'for (int i = messages.size() - 1; i >= 0; i--) {')
     # New nullable snapshot column, with an additive migration; never wipe local history.
     base=java/'com/radolyn/ayugram/database/entities/AyuMessageBase.java'
     edit(base,'public abstract class AyuMessageBase {','public abstract class AyuMessageBase {\n    public byte[] serializedMessage;')
@@ -205,3 +219,4 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('source',type=Path)
     apply(parser.parse_args().source)
+
