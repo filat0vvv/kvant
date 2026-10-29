@@ -1,38 +1,36 @@
-name: Сборка kvantGram APK
+name: kvantGram Ayu — APK и проверки истории
 
 on:
   push:
-    branches: [codex/kvantgram-branding-android]
+    branches: [codex/kvantgram-ayugram]
   workflow_dispatch:
     inputs:
       app_name:
         description: Название приложения
         required: true
-        default: kvantGram
+        default: kvantGram Ayu
       app_id:
-        description: ID пакета Android
+        description: Отдельный пакет для сохранности данных старого kvantGram
         required: true
-        default: com.kvant.messenger
+        default: com.kvant.messenger.ayu
 
 permissions:
   contents: read
-
 concurrency:
-  group: kvantgram-${{ github.ref }}
-  cancel-in-progress: false
+  group: kvantgram-ayu-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  FOSS_COMMIT: 10da5406ed92d30c6add3b25d40b2b3b6995d873
+  AYU_COMMIT: 7013145676d36d82ee13c02a89f72097b7490dcd
 
 jobs:
-  build-kvant:
+  build-ayu:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
-      - name: Скачать настройки kvantGram
+      - name: Скачать kvantGram
         uses: actions/checkout@v4
-
-      - name: Проверить наличие ключей
+      - name: Проверить наличие API и постоянной подписи
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -42,146 +40,123 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           python3 - <<'PY'
-          import os, re
-          required = ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'ANDROID_KEYSTORE_BASE64',
-                      'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD')
-          missing = [name for name in required if not os.environ.get(name)]
-          if missing:
-              raise SystemExit('Add repository Actions secrets: ' + ', '.join(missing))
-          if not re.fullmatch(r'[1-9][0-9]*', os.environ['TELEGRAM_API_ID']):
-              raise SystemExit('TELEGRAM_API_ID must be a positive integer')
-          if not re.fullmatch(r'[a-fA-F0-9]{32}', os.environ['TELEGRAM_API_HASH']):
-              raise SystemExit('TELEGRAM_API_HASH must contain 32 hexadecimal characters')
+          import os,re
+          names=('TELEGRAM_API_ID','TELEGRAM_API_HASH','ANDROID_KEYSTORE_BASE64','ANDROID_KEYSTORE_PASSWORD','ANDROID_KEY_ALIAS','ANDROID_KEY_PASSWORD')
+          missing=[n for n in names if not os.environ.get(n)]
+          if missing: raise SystemExit('Missing Actions secrets: '+', '.join(missing))
+          if not re.fullmatch(r'[1-9][0-9]*',os.environ['TELEGRAM_API_ID']): raise SystemExit('Invalid TELEGRAM_API_ID')
+          if not re.fullmatch(r'[a-fA-F0-9]{32}',os.environ['TELEGRAM_API_HASH']): raise SystemExit('Invalid TELEGRAM_API_HASH')
           PY
-
-      - name: Java для Android SDK
+      - name: Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Подготовить инструменты сборки
+      - name: Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
-
-      - name: Установить SDK, NDK и нативные инструменты
+      - name: Инструменты для AyuGram
         run: |
+          sdkmanager 'platforms;android-33' 'build-tools;33.0.1' 'ndk;21.4.7075529' 'cmake;3.10.2.4988404'
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake yasm nasm pkg-config patch
-          sdkmanager 'platforms;android-33' 'build-tools;33.0.0' 'ndk;21.4.7075529' 'cmake;3.10.2.4988404'
+          sudo apt-get install -y build-essential ninja-build cmake bison
           python3 -m pip install 'Pillow==11.3.0'
-          echo "NDK=$ANDROID_HOME/ndk/21.4.7075529" >> "$GITHUB_ENV"
-          echo "NINJA_PATH=$(command -v ninja)" >> "$GITHUB_ENV"
-
-      - name: Go для BoringSSL
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22.12'
-          cache: false
-
-      - name: Java для Gradle 7.2
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
-
-      - name: Скачать зафиксированную базу Telegram-FOSS
+      - name: Скачать публичную базу AyuGram
         run: |
           git init source_code
-          git -C source_code remote add origin https://github.com/Telegram-FOSS-Team/Telegram-FOSS.git
-          git -C source_code fetch --depth 1 origin "$FOSS_COMMIT"
+          git -C source_code remote add origin https://github.com/AyuGram/AyuGram4A.git
+          git -C source_code fetch --depth 1 origin "$AYU_COMMIT"
           git -C source_code checkout --detach FETCH_HEAD
-          git -C source_code submodule update --init --recursive --depth 1
-          test "$(git -C source_code rev-parse HEAD)" = "$FOSS_COMMIT"
-
-      - name: Применить название и логотип
+          test "$(git -C source_code rev-parse HEAD)" = "$AYU_COMMIT"
+          # The unavailable proprietary submodule is deliberately not fetched.
+          # Our open history classes replace its call sites in the next step.
+          test -s source_code/TMessagesProj/jni/ffmpeg/arm64-v8a/libswscale.a
+      - name: Подключить интерфейс, историю и брендинг kvantGram
         env:
-          APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
-          APP_ID: ${{ inputs.app_id || 'com.kvant.messenger' }}
-        run: python3 scripts/brand_android.py source_code
-
-      - name: Подготовить API credentials и постоянную подпись
+          APP_NAME: ${{ inputs.app_name || 'kvantGram Ayu' }}
+          APP_ID: ${{ inputs.app_id || 'com.kvant.messenger.ayu' }}
+        run: python3 scripts/brand_ayu.py source_code
+      - name: Настроить собственные API и подпись
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           python3 - <<'PY'
-          import base64, os
+          import os,json,base64
           from pathlib import Path
-          Path('source_code/API_KEYS').write_text(
-              'APP_ID=' + os.environ['TELEGRAM_API_ID'] + '\nAPP_HASH=' + os.environ['TELEGRAM_API_HASH'] + '\n')
-          Path('source_code/API_KEYS').chmod(0o600)
-          Path('source_code/local.properties').write_text('sdk.dir=' + os.environ['ANDROID_HOME'] + '\n')
-          key = Path(os.environ['RUNNER_TEMP']) / 'kvantgram-release.keystore'
-          key.write_bytes(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'], validate=True))
-          key.chmod(0o600)
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write('KVANT_KEYSTORE_PATH=' + str(key) + '\n')
+          p=Path('source_code/API_KEYS')
+          p.write_text('APP_ID='+os.environ['TELEGRAM_API_ID']+'\nAPP_HASH='+json.dumps(os.environ['TELEGRAM_API_HASH'])+'\nMAPS_V2_API=\n')
+          p.chmod(0o600)
+          Path('source_code/local.properties').write_text('sdk.dir='+os.environ['ANDROID_HOME']+'\n')
+          key=Path(os.environ['RUNNER_TEMP'])/'kvantgram-release.keystore'
+          key.write_bytes(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'],validate=True));key.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('KVANT_KEYSTORE_PATH='+str(key)+'\n')
           PY
-
-      - name: Проверить подпись до длительной компиляции
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: |
-          keytool -list -keystore "$KVANT_KEYSTORE_PATH" \
-            -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" > /dev/null
-
-      - name: Собрать FFmpeg, libvpx и BoringSSL для arm64
-        run: bash scripts/build_native.sh "$GITHUB_WORKSPACE/source_code"
-
-      - name: Собрать подписанный APK
+      - name: Кэш зависимостей Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: kvantgram-ayu-gradle-v1-${{ env.AYU_COMMIT }}
+      - name: Проверить историю, режим призрака и собрать APK
         working-directory: source_code
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          keytool -list -keystore "$KVANT_KEYSTORE_PATH" -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" > /dev/null
           chmod +x gradlew
-          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
-
-      - name: Проверить APK и сохранить исходники изменений
+          ./gradlew :TMessagesProj:testAfatReleaseUnitTest :TMessagesProj:assembleAfatRelease --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
+      - name: Проверить и подготовить готовый APK
         env:
-          APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
-          APP_ID: ${{ inputs.app_id || 'com.kvant.messenger' }}
+          APP_NAME: ${{ inputs.app_name || 'kvantGram Ayu' }}
+          APP_ID: ${{ inputs.app_id || 'com.kvant.messenger.ayu' }}
         run: |
           mkdir -p dist
-          cp source_code/TMessagesProj_App/build/outputs/apk/afat/release/app.apk dist/kvantGram-arm64.apk
-          "$ANDROID_HOME/build-tools/33.0.0/apksigner" verify --verbose dist/kvantGram-arm64.apk
-          "$ANDROID_HOME/build-tools/33.0.0/aapt" dump badging dist/kvantGram-arm64.apk > dist/apk-info.txt
+          cp source_code/TMessagesProj/build/outputs/apk/afat/release/kvantGram-Ayu-arm64.apk dist/
+          "$ANDROID_HOME/build-tools/33.0.1/apksigner" verify --verbose dist/kvantGram-Ayu-arm64.apk
+          "$ANDROID_HOME/build-tools/33.0.1/aapt" dump badging dist/kvantGram-Ayu-arm64.apk > dist/apk-info.txt
           python3 - <<'PY'
           import os
           from pathlib import Path
-          info = Path('dist/apk-info.txt').read_text()
-          assert "package: name='" + os.environ['APP_ID'] + "'" in info, 'Wrong Android package'
-          assert "application-label:'" + os.environ['APP_NAME'] + "'" in info, 'Wrong app label'
-          assert "native-code: 'arm64-v8a'" in info, 'Wrong native ABI'
+          info=Path('dist/apk-info.txt').read_text()
+          assert "package: name='"+os.environ['APP_ID']+"'" in info
+          assert "application-label:'"+os.environ['APP_NAME']+"'" in info
+          assert "native-code: 'arm64-v8a'" in info
           PY
-          sha256sum dist/kvantGram-arm64.apk > dist/SHA256SUMS.txt
-          git -C source_code add -N -- TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java \
+          sha256sum dist/kvantGram-Ayu-arm64.apk > dist/SHA256SUMS.txt
+          git -C source_code add -N -- TMessagesProj/src/main/java/com/kvant \
+            TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java \
             TMessagesProj/src/main/res/drawable-nodpi/kvant_logo.png \
             TMessagesProj/src/main/res/drawable/kvant_foreground.xml \
-            TMessagesProj/src/main/res/values/kvant_brand.xml
-          git -C source_code diff --binary > dist/kvantGram-source.patch
-          git -C source_code submodule status --recursive > dist/upstream-submodules.txt
-          cp assets/AutoProxyManager.java dist/
-          git archive --format=zip --output=dist/kvantGram-build-source.zip HEAD
-          printf '%s\n' "$FOSS_COMMIT" > dist/upstream-commit.txt
-          echo '### kvantGram APK' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Signed Android arm64 APK is available below in kvantGram-Android-APK.' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Скачать готовый APK
+            TMessagesProj/src/main/res/values/kvant_brand.xml \
+            TMessagesProj/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml \
+            TMessagesProj/src/main/res/mipmap-*/ic_launcher_round.png \
+            TMessagesProj/src/test
+          git -C source_code diff --binary > dist/kvantGram-Ayu-source.patch
+          git archive --format=zip --output=dist/kvantGram-Ayu-build-source.zip HEAD
+          printf '%s\n' "$AYU_COMMIT" > dist/upstream-commit.txt
+          echo 'kvantGram Ayu APK is available in Artifacts. This installs separately from the Telegram-FOSS edition.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Скачать kvantGram Ayu APK
         uses: actions/upload-artifact@v4
         with:
-          name: kvantGram-Android-APK
+          name: kvantGram-Ayu-Android-APK
           path: dist/
           if-no-files-found: error
           retention-days: 14
-
-      - name: Удалить временные ключи с runner
+      - name: Сохранить результаты тестов
         if: always()
-        run: |
-          rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore" "$GITHUB_WORKSPACE/source_code/API_KEYS"
-
+        uses: actions/upload-artifact@v4
+        with:
+          name: kvantGram-Ayu-test-results
+          path: |
+            source_code/TMessagesProj/build/test-results/
+            source_code/TMessagesProj/build/reports/tests/
+          if-no-files-found: ignore
+      - name: Удалить временные ключи
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore" "$GITHUB_WORKSPACE/source_code/API_KEYS"
