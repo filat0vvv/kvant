@@ -6,19 +6,19 @@ on:
       app_name:
         description: 'Название приложения'
         required: true
-        default: 'Kvant'
+        default: 'kvantGram'
       app_id:
-        description: 'ID пакета (чтобы ставился отдельно от обычного TG)'
+        description: 'ID пакета'
         required: true
         default: 'com.kvant.messenger'
       custom_channel:
-        description: 'Твой Telegram-канал или юзернейм (без @)'
+        description: 'Твой Telegram-канал (без @)'
         required: false
-        default: 'kvant_official'
+        default: 'kvantgram_official'
       custom_link:
-        description: 'Твоя ссылка в меню (сайт, бот или группа ВК)'
+        description: 'Твоя ссылка в меню'
         required: false
-        default: 'https://t.me/kvant_official'
+        default: 'https://t.me/kvantgram_official'
 
 jobs:
   build-kvant:
@@ -28,16 +28,16 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
 
-      - name: 2. Скачивание чистой базы exteraGram
+      - name: 2. Скачивание базы Telegram-FOSS
         run: |
-          git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
+          git clone --depth 1 --recursive https://github.com/Telegram-FOSS-Team/Telegram-FOSS.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси + Заглушки Boost)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси)
         env:
-          APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
+          APP_NAME: ${{ github.event.inputs.app_name || 'kvantGram' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
-          CHANNEL: ${{ github.event.inputs.custom_channel || 'kvant_official' }}
-          LINK: ${{ github.event.inputs.custom_link || 'https://t.me/kvant_official' }}
+          CHANNEL: ${{ github.event.inputs.custom_channel || 'kvantgram_official' }}
+          LINK: ${{ github.event.inputs.custom_link || 'https://t.me/kvantgram_official' }}
         run: |
           python3 - << 'EOF'
           import os, re, glob
@@ -48,93 +48,7 @@ jobs:
           channel = os.environ["CHANNEL"].lstrip("@")
           link = os.environ["LINK"]
 
-          # 1. Создаем 4 недостающих класса пакета com.exteragram.messenger.boost
-          boost_base = f"{root}/TMessagesProj/src/main/java/com/exteragram/messenger/boost"
-          os.makedirs(f"{boost_base}/encryption", exist_ok=True)
-          os.makedirs(f"{boost_base}/filter", exist_ok=True)
-
-          with open(f"{boost_base}/BoostController.java", "w", encoding="utf-8") as f:
-              f.write("""package com.exteragram.messenger.boost;
-
-          public class BoostController {
-              public static boolean isUserBooster() {
-                  return false;
-              }
-          }
-          """)
-
-          with open(f"{boost_base}/filter/ZalgoFilter.java", "w", encoding="utf-8") as f:
-              f.write("""package com.exteragram.messenger.boost.filter;
-
-          public class ZalgoFilter {
-              public static <T extends CharSequence> T filterMessage(T text) {
-                  return text;
-              }
-          }
-          """)
-
-          with open(f"{boost_base}/encryption/BaseEncryptor.java", "w", encoding="utf-8") as f:
-              f.write("""package com.exteragram.messenger.boost.encryption;
-
-          public class BaseEncryptor {
-              public String getName() {
-                  return "None";
-              }
-          }
-          """)
-
-          with open(f"{boost_base}/encryption/EncryptionHelper.java", "w", encoding="utf-8") as f:
-              f.write("""package com.exteragram.messenger.boost.encryption;
-
-          import org.telegram.messenger.MessageObject;
-
-          public class EncryptionHelper {
-              public static final String[] names = new String[]{"None"};
-
-              public interface EncryptCallback {
-                  void run(String message);
-              }
-
-              public static BaseEncryptor getEncryptorBy(long dialogId) {
-                  return new BaseEncryptor();
-              }
-
-              public static int getEncryptorTypeFor(long dialogId) {
-                  return 0;
-              }
-
-              public static void setEncryptorTypeFor(long dialogId, int type) {
-              }
-
-              public static void encryptMessage(String text, long dialogId, int type, EncryptCallback callback) {
-                  if (callback != null) {
-                      callback.run(text);
-                  }
-              }
-
-              public static String encryptMessage(String text, long dialogId, BaseEncryptor encryptor) {
-                  return text;
-              }
-
-              public static boolean isEncrypted(String message) {
-                  return false;
-              }
-
-              public static boolean isEncrypted(MessageObject messageObject, Object extra) {
-                  return false;
-              }
-
-              public static MessageObject decryptMessage(MessageObject messageObject) {
-                  return messageObject;
-              }
-
-              public static MessageObject decryptMessage(MessageObject messageObject, MessageObject.GroupedMessages group) {
-                  return messageObject;
-              }
-          }
-          """)
-
-          # 2. Создаем модуль авто-прокси (работа без VPN)
+          # Модуль авто-прокси без VPN
           auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
           auto_proxy_code = """package org.telegram.messenger;
 
@@ -249,7 +163,7 @@ jobs:
           with open(auto_proxy_path, "w", encoding="utf-8") as f:
               f.write(auto_proxy_code)
 
-          # 3. Подключаем автозапуск прокси при старте
+          # Подключаем вызов прокси в SharedConfig.java
           shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
           if os.path.exists(shared_cfg):
               with open(shared_cfg, "r", encoding="utf-8") as f:
@@ -258,84 +172,25 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 4. Аккуратно правим gradle.properties (сохраняя APP_PACKAGE)
-          gp_path = f"{root}/gradle.properties"
-          if os.path.exists(gp_path):
-              with open(gp_path, "r", encoding="utf-8") as f:
-                  gp = f.read()
-              gp = gp.replace("org.gradle.unsafe.configuration-cache=true", "org.gradle.unsafe.configuration-cache=false")
-              gp = re.sub(r'org\.gradle\.jvmargs=.*', 'org.gradle.jvmargs=-Xmx6g -Xss8m -Dfile.encoding=UTF-8', gp)
-              with open(gp_path, "w", encoding="utf-8") as f:
-                  f.write(gp + "\norg.gradle.configuration-cache=false\n")
-
-          # 5. Фиксируем TMessagesProj/build.gradle
+          # Настройка build.gradle
           bg_path = f"{root}/TMessagesProj/build.gradle"
-          with open(bg_path, "r", encoding="utf-8") as f:
-              bg = f.read()
+          if os.path.exists(bg_path):
+              with open(bg_path, "r", encoding="utf-8") as f:
+                  bg = f.read()
+              bg = bg.replace("applicationId APP_PACKAGE", f'applicationId "{app_id}"')
+              bg = bg.replace("minifyEnabled true", "minifyEnabled false")
+              bg = bg.replace("shrinkResources true", "shrinkResources false")
+              with open(bg_path, "w", encoding="utf-8") as f:
+                  f.write(bg)
 
-          bg = bg.replace("apply plugin: 'com.google.gms.google-services'", "// apply plugin: 'com.google.gms.google-services'")
-          bg = bg.replace('id "com.google.gms.google-services"', '// id "com.google.gms.google-services"')
-          bg = bg.replace("apply plugin: 'com.google.firebase.crashlytics'", "// apply plugin: 'com.google.firebase.crashlytics'")
-          bg = bg.replace('id "com.google.firebase.crashlytics"', '// id "com.google.firebase.crashlytics"')
-          bg = bg.replace("applicationId APP_PACKAGE", f'applicationId "{app_id}"')
-          bg = bg.replace("minifyEnabled true", "minifyEnabled false")
-          bg = bg.replace("shrinkResources true", "shrinkResources false")
-
-          new_lines = []
-          for line in bg.splitlines():
-              m = re.match(r'^(\s*)buildConfigField\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
-              if m:
-                  indent, ftype, fname = m.group(1), m.group(2).strip(), m.group(3).strip()
-                  if fname == "APP_ID": val = '"4"'
-                  elif fname == "APP_HASH": val = '"\\"014b35b6184100b085b0d0572f9b5103\\""'
-                  elif ftype == "boolean": val = '"false"'
-                  elif ftype in ("int", "long"): val = '"0"'
-                  else: val = '"\\"\\""'
-                  new_lines.append(f'{indent}buildConfigField "{ftype}", "{fname}", {val}')
-                  continue
-
-              mr = re.match(r'^(\s*)resValue\s*\(?\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*(.+)$', line)
-              if mr:
-                  indent, rtype, rname = mr.group(1), mr.group(2).strip(), mr.group(3).strip()
-                  new_lines.append(f'{indent}resValue "{rtype}", "{rname}", "\\"\\""')
-                  continue
-
-              if re.match(r'^\s*storeFile\s+', line):
-                  new_lines.append('        storeFile file("config/release.keystore")')
-                  continue
-              if re.match(r'^\s*storePassword\s+', line):
-                  new_lines.append('        storePassword "kvant123"')
-                  continue
-              if re.match(r'^\s*keyAlias\s+', line):
-                  new_lines.append('        keyAlias "release"')
-                  continue
-              if re.match(r'^\s*keyPassword\s+', line):
-                  new_lines.append('        keyPassword "kvant123"')
-                  continue
-
-              new_lines.append(line)
-
-          with open(bg_path, "w", encoding="utf-8") as f:
-              f.write("\n".join(new_lines))
-
-          # 6. Меняем название приложения
+          # Переименование приложения
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
               with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
                   txt = f.read()
-              new_txt = re.sub(r'>exteraGram(\s*Beta)?<', f'>{app_name}<', txt, flags=re.IGNORECASE)
+              new_txt = re.sub(r'>Telegram(\s*FOSS)?<', f'>{app_name}<', txt, flags=re.IGNORECASE)
               if new_txt != txt:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
-
-          # 7. Заменяем ссылки разработчиков на твои
-          for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/**/*.java", recursive=True):
-              with open(java_file, "r", encoding="utf-8", errors="ignore") as f:
-                  j = f.read()
-              j_new = j.replace('"exteragram"', f'"{channel}"').replace('"exteraSquad"', f'"{channel}"')
-              j_new = j_new.replace("https://exteragram.app", link)
-              if j_new != j:
-                  with open(java_file, "w", encoding="utf-8") as f:
-                      f.write(j_new)
           EOF
 
       - name: 4. Настройка Java 17
@@ -344,14 +199,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 5. Кэширование C++ (NDK) и Gradle
+      - name: 5. Кэширование
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
             source_code/TMessagesProj/.cxx
-          key: kvant-native-cache-v3
+          key: kvant-foss-cache-v1
 
       - name: 6. Генерация подписи APK
         working-directory: source_code
@@ -362,13 +217,13 @@ jobs:
             -storepass kvant123 -keypass kvant123 \
             -dname "CN=Kvant, OU=Mobile, O=Kvant, L=City, S=State, C=US"
 
-      - name: 7. Компиляция Kvant APK (arm64)
+      - name: 7. Компиляция APK (arm64)
         working-directory: source_code
         run: |
           chmod +x gradlew
           ./gradlew assembleArm64Release --no-daemon --no-configuration-cache
 
-      - name: 8. Выгрузка готового Kvant.apk
+      - name: 8. Выгрузка APK
         uses: actions/upload-artifact@v4
         with:
           name: Kvant-Android-APK
