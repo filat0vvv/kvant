@@ -1,0 +1,8 @@
+source_code/
+*.keystore
+*.jks
+*.p12
+API_KEYS
+local.properties
+__pycache__/
+*.pyc
