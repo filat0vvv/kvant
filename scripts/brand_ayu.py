@@ -30,6 +30,11 @@ def apply(root):
     if not name.strip() or any(ord(c)<32 for c in name): raise ValueError('Invalid app name')
     java = root/'TMessagesProj/src/main/java'
     remove_unpublished_boost.apply(java)
+    edit(java/'org/telegram/ui/Cells/ChatMessageCell.java',
+         '''        if (currentMessageObject.isDecrypted && currentMessageObject.currentEncryptor != null) {
+            timeString = currentMessageObject.currentEncryptor.getName() + " " + timeString;
+        }
+''','')
     res = root/'TMessagesProj/src/main/res'
     gradle = root/'TMessagesProj/build.gradle'
     edit(root/'gradle.properties','APP_PACKAGE=com.radolyn.ayugram','APP_PACKAGE='+package)
@@ -103,6 +108,9 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     edit(java/'com/radolyn/ayugram/database/AyuData.java','.fallbackToDestructiveMigration()',
          '.addMigrations(new com.kvant.messenger.history.HistoryMigration())')
     edit(java/'com/radolyn/ayugram/database/dao/DeletedMessageDao.java','ORDER BY messageId LIMIT :limit','ORDER BY date DESC, messageId DESC LIMIT :limit')
+    revisions=java/'com/radolyn/ayugram/database/dao/EditedMessageDao.java'
+    edit(revisions,'ORDER BY entityCreateDate")','ORDER BY entityCreateDate, fakeId")')
+    edit(revisions,'ORDER BY entityCreateDate DESC LIMIT 1','ORDER BY entityCreateDate DESC, fakeId DESC LIMIT 1')
     controller=java/'com/radolyn/ayugram/messages/AyuMessagesController.java'
     edit(controller,'public static final String attachmentsSubfolder = "Saved Attachments";',
          'public static final String attachmentsSubfolder = "kvant-history";')

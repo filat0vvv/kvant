@@ -42,11 +42,21 @@ public final class AyuHistoryHook {
         }
         for (DeletedMessageFull record : saved) {
             if (record.message.userId != userId || record.message.dialogId != dialogId
-                    || record.message.topicId != topicId || present.contains(record.message.messageId)) continue;
+                    || record.message.topicId != topicId) continue;
+            if (present.contains(record.message.messageId)) {
+                for (MessageObject message : page) {
+                    if (message.getId() == record.message.messageId && message.messageOwner.dialog_id == dialogId)
+                        message.messageOwner.ayuDeleted = true;
+                }
+                continue;
+            }
             boolean alreadyVisible = false;
             for (SparseArray<MessageObject> dictionary : visible) {
                 MessageObject existing = dictionary.get(record.message.messageId);
-                if (existing != null && existing.messageOwner.dialog_id == dialogId) { alreadyVisible = true; break; }
+                if (existing != null && existing.messageOwner.dialog_id == dialogId) {
+                    existing.messageOwner.ayuDeleted = true;
+                    alreadyVisible = true; break;
+                }
             }
             if (alreadyVisible) continue;
             try {

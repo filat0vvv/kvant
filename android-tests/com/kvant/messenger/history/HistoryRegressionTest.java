@@ -105,6 +105,17 @@ public class HistoryRegressionTest {
         assertEquals(2,page.size());assertEquals(4,page.get(0).message.messageId);assertEquals(3,page.get(1).message.messageId);
         db.close();
     }
+    @Test public void editsInSameSecondKeepInsertionOrder() {
+        String name="history-edits.db";context.deleteDatabase(name);AyuDatabase db=open(name);
+        for(String text:new String[]{"first version","second version"}) {
+            EditedMessage row=new EditedMessage();
+            AyuMessageUtils.capture(message(text),row,1,100,0,42,2000,true,true);
+            db.editedMessageDao().insert(row);
+        }
+        assertEquals("first version",db.editedMessageDao().getAllRevisions(1,100,42).get(0).text);
+        assertEquals("second version",db.editedMessageDao().getLastRevision(1,100,42).text);
+        db.close();
+    }
     @Test public void migrationFrom21KeepsExistingHistory() throws Exception {
         String name="history-migration.db";context.deleteDatabase(name);
         File path=context.getDatabasePath(name);path.getParentFile().mkdirs();
