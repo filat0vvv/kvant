@@ -87,10 +87,13 @@ jobs:
               f.write("""package com.exteragram.messenger.boost.encryption;
 
           import org.telegram.messenger.MessageObject;
-          import org.telegram.messenger.Utilities;
 
           public class EncryptionHelper {
               public static final String[] names = new String[]{"None"};
+
+              public interface EncryptCallback {
+                  void run(String message);
+              }
 
               public static BaseEncryptor getEncryptorBy(long dialogId) {
                   return new BaseEncryptor();
@@ -103,7 +106,7 @@ jobs:
               public static void setEncryptorTypeFor(long dialogId, int type) {
               }
 
-              public static void encryptMessage(String text, long dialogId, int type, Utilities.Callback<String> callback) {
+              public static void encryptMessage(String text, long dialogId, int type, EncryptCallback callback) {
                   if (callback != null) {
                       callback.run(text);
                   }
@@ -255,7 +258,7 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 4. Аккуратно правим gradle.properties (сохраняя APP_PACKAGE и все заводские переменные!)
+          # 4. Аккуратно правим gradle.properties (сохраняя APP_PACKAGE)
           gp_path = f"{root}/gradle.properties"
           if os.path.exists(gp_path):
               with open(gp_path, "r", encoding="utf-8") as f:
@@ -265,14 +268,18 @@ jobs:
               with open(gp_path, "w", encoding="utf-8") as f:
                   f.write(gp + "\norg.gradle.configuration-cache=false\n")
 
-          # 5. Фиксируем TMessagesProj/build.gradle и отключаем плагин google-services
+          # 5. Фиксируем TMessagesProj/build.gradle
           bg_path = f"{root}/TMessagesProj/build.gradle"
           with open(bg_path, "r", encoding="utf-8") as f:
               bg = f.read()
 
           bg = bg.replace("apply plugin: 'com.google.gms.google-services'", "// apply plugin: 'com.google.gms.google-services'")
           bg = bg.replace('id "com.google.gms.google-services"', '// id "com.google.gms.google-services"')
+          bg = bg.replace("apply plugin: 'com.google.firebase.crashlytics'", "// apply plugin: 'com.google.firebase.crashlytics'")
+          bg = bg.replace('id "com.google.firebase.crashlytics"', '// id "com.google.firebase.crashlytics"')
           bg = bg.replace("applicationId APP_PACKAGE", f'applicationId "{app_id}"')
+          bg = bg.replace("minifyEnabled true", "minifyEnabled false")
+          bg = bg.replace("shrinkResources true", "shrinkResources false")
 
           new_lines = []
           for line in bg.splitlines():
@@ -311,7 +318,7 @@ jobs:
           with open(bg_path, "w", encoding="utf-8") as f:
               f.write("\n".join(new_lines))
 
-          # 6. Меняем название приложения на Kvant
+          # 6. Меняем название приложения
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
               with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
                   txt = f.read()
@@ -344,7 +351,7 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             source_code/TMessagesProj/.cxx
-          key: kvant-native-cache-v2
+          key: kvant-native-cache-v3
 
       - name: 6. Генерация подписи APK
         working-directory: source_code
@@ -359,7 +366,7 @@ jobs:
         working-directory: source_code
         run: |
           chmod +x gradlew
-          ./gradlew assembleArm64Release --no-daemon --no-configuration-cache -x lint -x lintVitalRelease -x lintVitalArm64Release
+          ./gradlew assembleArm64Release --no-daemon --no-configuration-cache
 
       - name: 8. Выгрузка готового Kvant.apk
         uses: actions/upload-artifact@v4
