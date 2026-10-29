@@ -110,7 +110,8 @@ jobs:
         run: |
           keytool -list -keystore "$KVANT_KEYSTORE_PATH" -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" > /dev/null
           chmod +x gradlew
-          ./gradlew :TMessagesProj:testAfatReleaseUnitTest :TMessagesProj:assembleAfatRelease --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
+          ./gradlew :TMessagesProj:testAfatReleaseUnitTest --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
+          ./gradlew :TMessagesProj:assembleAfatRelease --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
       - name: Проверить и подготовить готовый APK
         env:
           APP_NAME: ${{ inputs.app_name || 'kvantGram Ayu' }}
@@ -160,3 +161,4 @@ jobs:
       - name: Удалить временные ключи
         if: always()
         run: rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore" "$GITHUB_WORKSPACE/source_code/API_KEYS"
+
