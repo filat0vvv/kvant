@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/Telegram-FOSS-Team/Telegram-FOSS.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси + Фикс Java 17 MaxPermSize)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'kvantGram' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -47,6 +47,18 @@ jobs:
           app_id = os.environ["APP_ID"]
           channel = os.environ["CHANNEL"].lstrip("@")
           link = os.environ["LINK"]
+
+          # Удаляем устаревший флаг MaxPermSize для совместимости с Java 17
+          for pfile in glob.glob(f"{root}/**/gradle.properties", recursive=True) + glob.glob(f"{root}/**/gradlew*", recursive=True):
+              try:
+                  with open(pfile, "r", encoding="utf-8", errors="ignore") as f:
+                      content = f.read()
+                  if "MaxPermSize" in content:
+                      new_content = content.replace("-XX:MaxPermSize=4096m", "").replace("MaxPermSize=4096m", "")
+                      with open(pfile, "w", encoding="utf-8") as f:
+                          f.write(new_content)
+              except Exception:
+                  pass
 
           # Модуль авто-прокси без VPN
           auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
@@ -163,7 +175,6 @@ jobs:
           with open(auto_proxy_path, "w", encoding="utf-8") as f:
               f.write(auto_proxy_code)
 
-          # Подключаем вызов прокси в SharedConfig.java
           shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
           if os.path.exists(shared_cfg):
               with open(shared_cfg, "r", encoding="utf-8") as f:
@@ -172,7 +183,6 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # Настройка build.gradle
           bg_path = f"{root}/TMessagesProj/build.gradle"
           if os.path.exists(bg_path):
               with open(bg_path, "r", encoding="utf-8") as f:
@@ -183,7 +193,6 @@ jobs:
               with open(bg_path, "w", encoding="utf-8") as f:
                   f.write(bg)
 
-          # Переименование приложения
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
               with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
                   txt = f.read()
