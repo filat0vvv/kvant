@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси + Классы Boost/Encryption)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси + Заглушки Boost)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -48,7 +48,7 @@ jobs:
           channel = os.environ["CHANNEL"].lstrip("@")
           link = os.environ["LINK"]
 
-          # 1. Создаем недостающие классы пакета com.exteragram.messenger.boost, чтобы Java скомпилировалась без ошибок
+          # 1. Создаем 4 недостающих класса пакета com.exteragram.messenger.boost
           boost_base = f"{root}/TMessagesProj/src/main/java/com/exteragram/messenger/boost"
           os.makedirs(f"{boost_base}/encryption", exist_ok=True)
           os.makedirs(f"{boost_base}/filter", exist_ok=True)
@@ -255,28 +255,24 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 4. Отключаем configuration-cache и увеличиваем стек JVM в gradle.properties (убирает StackOverflowError)
+          # 4. Аккуратно правим gradle.properties (сохраняя APP_PACKAGE и все заводские переменные!)
           gp_path = f"{root}/gradle.properties"
-          with open(gp_path, "w", encoding="utf-8") as f:
-              f.write(
-                  "org.gradle.jvmargs=-Xmx6g -Xss8m -Dfile.encoding=UTF-8\n"
-                  "org.gradle.unsafe.configuration-cache=false\n"
-                  "org.gradle.configuration-cache=false\n"
-                  "android.useAndroidX=true\n"
-                  "android.enableJetifier=true\n"
-              )
+          if os.path.exists(gp_path):
+              with open(gp_path, "r", encoding="utf-8") as f:
+                  gp = f.read()
+              gp = gp.replace("org.gradle.unsafe.configuration-cache=true", "org.gradle.unsafe.configuration-cache=false")
+              gp = re.sub(r'org\.gradle\.jvmargs=.*', 'org.gradle.jvmargs=-Xmx6g -Xss8m -Dfile.encoding=UTF-8', gp)
+              with open(gp_path, "w", encoding="utf-8") as f:
+                  f.write(gp + "\norg.gradle.configuration-cache=false\n")
 
-          # 5. Фиксируем TMessagesProj/build.gradle
+          # 5. Фиксируем TMessagesProj/build.gradle и отключаем плагин google-services
           bg_path = f"{root}/TMessagesProj/build.gradle"
           with open(bg_path, "r", encoding="utf-8") as f:
               bg = f.read()
 
           bg = bg.replace("apply plugin: 'com.google.gms.google-services'", "// apply plugin: 'com.google.gms.google-services'")
           bg = bg.replace('id "com.google.gms.google-services"', '// id "com.google.gms.google-services"')
-          bg = bg.replace("apply plugin: 'com.google.firebase.crashlytics'", "// apply plugin: 'com.google.firebase.crashlytics'")
-          bg = bg.replace('id "com.google.firebase.crashlytics"', '// id "com.google.firebase.crashlytics"')
-          bg = bg.replace("minifyEnabled true", "minifyEnabled false")
-          bg = bg.replace("shrinkResources true", "shrinkResources false")
+          bg = bg.replace("applicationId APP_PACKAGE", f'applicationId "{app_id}"')
 
           new_lines = []
           for line in bg.splitlines():
@@ -324,16 +320,7 @@ jobs:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
 
-          # 7. Меняем applicationId везде в gradle-файлах
-          for target in glob.glob(f"{root}/**/build.gradle*", recursive=True):
-              with open(target, "r", encoding="utf-8", errors="ignore") as f:
-                  t = f.read()
-              t_new = t.replace('"com.exteragram.messenger"', f'"{app_id}"').replace("'com.exteragram.messenger'", f"'{app_id}'")
-              if t_new != t:
-                  with open(target, "w", encoding="utf-8") as f:
-                      f.write(t_new)
-
-          # 8. Заменяем ссылки разработчиков на твои
+          # 7. Заменяем ссылки разработчиков на твои
           for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/**/*.java", recursive=True):
               with open(java_file, "r", encoding="utf-8", errors="ignore") as f:
                   j = f.read()
@@ -350,14 +337,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 5. Кэширование C++ (NDK) и Gradle для быстрой сборки
+      - name: 5. Кэширование C++ (NDK) и Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
             source_code/TMessagesProj/.cxx
-          key: kvant-native-cache-v1
+          key: kvant-native-cache-v2
 
       - name: 6. Генерация подписи APK
         working-directory: source_code
