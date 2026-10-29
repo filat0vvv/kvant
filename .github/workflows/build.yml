@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone --depth 1 --recursive https://github.com/exteraSquad/exteraGram.git source_code
 
-      - name: 3. Авто-патч (Kvant + Авто-Прокси + Фикс отсутствующих пакетов Boost/Encryption)
+      - name: 3. Авто-патч (Kvant + Авто-Прокси + Удаление проблемного модуля boost)
         env:
           APP_NAME: ${{ github.event.inputs.app_name || 'Kvant' }}
           APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
@@ -40,7 +40,7 @@ jobs:
           LINK: ${{ github.event.inputs.custom_link || 'https://t.me/kvant_official' }}
         run: |
           python3 - << 'EOF'
-          import os, re, glob
+          import os, re, glob, shutil
 
           root = "source_code"
           app_name = os.environ["APP_NAME"]
@@ -48,7 +48,13 @@ jobs:
           channel = os.environ["CHANNEL"].lstrip("@")
           link = os.environ["LINK"]
 
-          # 1. Создаем модуль авто-прокси
+          # 1. Удаляем проблемную папку boost целиком, чтобы компилятор её не искал
+          boost_dir = f"{root}/TMessagesProj/src/main/java/com/exteragram/messenger/boost"
+          if os.path.exists(boost_dir):
+              shutil.rmtree(boost_dir)
+              print("Успешно удалена папка boost")
+
+          # 2. Создаем модуль авто-прокси
           auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
           auto_proxy_code = """package org.telegram.messenger;
 
@@ -163,7 +169,7 @@ jobs:
           with open(auto_proxy_path, "w", encoding="utf-8") as f:
               f.write(auto_proxy_code)
 
-          # 2. Подключаем автозапуск прокси при старте
+          # 3. Подключаем автозапуск прокси при старте
           shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
           if os.path.exists(shared_cfg):
               with open(shared_cfg, "r", encoding="utf-8") as f:
@@ -172,7 +178,7 @@ jobs:
               with open(shared_cfg, "w", encoding="utf-8") as f:
                   f.write(sc)
 
-          # 3. Фиксируем build.gradle и отключаем google-services плагин
+          # 4. Фиксируем build.gradle и отключаем google-services плагин
           bg_path = f"{root}/TMessagesProj/build.gradle"
           with open(bg_path, "r", encoding="utf-8") as f:
               bg = f.read()
@@ -217,23 +223,21 @@ jobs:
           with open(bg_path, "w", encoding="utf-8") as f:
               f.write("\n".join(new_lines))
 
-          # 4. Вычищаем вызовы отсутствующих пакетов Boost/Encryption/Zalgo, чтобы компилятор не падал
+          # 5. Аккуратно заменяем импорты и вызовы удаленного boost-модуля на безопасные заглушки
           for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/**/*.java", recursive=True):
               with open(java_file, "r", encoding="utf-8", errors="ignore") as f:
                   jf = f.read()
               
               if "exteragram.messenger.boost" in jf or "ZalgoFilter" in jf or "EncryptionHelper" in jf or "BoostController" in jf:
-                  # Удаляем импорты несуществующих пакетов
                   jf = re.sub(r'import\s+com\.exteragram\.messenger\.boost[^\r\n]*;', '', jf)
-                  # Заменяем обращения к EncryptionHelper/BoostController/Zalgo заглушками
-                  jf = jf.replace("ZalgoFilter.filterMessage", "")
+                  jf = jf.replace("ZalgoFilter.filterMessage", "(Object)")
                   jf = jf.replace("BoostController.isUserBooster()", "false")
-                  jf = re.sub(r'EncryptionHelper\.[a-zA-Z0-9_]+\([^)]*\)', 'null', jf)
+                  jf = jf.replace("EncryptionHelper.", "/* EncryptionHelper */ false && ")
                   
                   with open(java_file, "w", encoding="utf-8") as f:
                       f.write(jf)
 
-          # 5. Меняем название приложения на Kvant
+          # 6. Меняем название приложения на Kvant
           for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
               with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
                   txt = f.read()
@@ -242,7 +246,7 @@ jobs:
                   with open(xml_file, "w", encoding="utf-8") as f:
                       f.write(new_txt)
 
-          # 6. Меняем applicationId везде
+          # 7. Меняем applicationId везде
           for target in glob.glob(f"{root}/**/build.gradle*", recursive=True):
               with open(target, "r", encoding="utf-8", errors="ignore") as f:
                   t = f.read()
@@ -251,7 +255,7 @@ jobs:
                   with open(target, "w", encoding="utf-8") as f:
                       f.write(t_new)
 
-          # 7. Заменяем ссылки разработчиков
+          # 8. Заменяем ссылки разработчиков
           for java_file in glob.glob(f"{root}/TMessagesProj/src/main/java/**/*.java", recursive=True):
               with open(java_file, "r", encoding="utf-8", errors="ignore") as f:
                   j = f.read()
