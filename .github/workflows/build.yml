@@ -61,6 +61,11 @@ jobs:
           java-version: '17'
 
       - name: Подготовить инструменты сборки
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Установить SDK, NDK и нативные инструменты
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential ninja-build cmake yasm nasm pkg-config patch
@@ -179,3 +184,4 @@ jobs:
         if: always()
         run: |
           rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore" "$GITHUB_WORKSPACE/source_code/API_KEYS"
+
