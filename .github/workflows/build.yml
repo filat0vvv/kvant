@@ -1,465 +1,187 @@
-name: Сборка Kvant APK
+name: Сборка kvantGram APK
 
 on:
+  push:
+    branches: [codex/kvantgram-branding-android]
   workflow_dispatch:
     inputs:
       app_name:
-        description: 'Название приложения'
+        description: Название приложения
         required: true
-        default: 'kvantGram'
+        default: kvantGram
       app_id:
-        description: 'ID пакета'
+        description: ID пакета Android
         required: true
-        default: 'com.kvant.messenger'
-      custom_channel:
-        description: 'Твой Telegram-канал (без @)'
-        required: false
-        default: 'kvantgram_official'
-      custom_link:
-        description: 'Твоя ссылка в меню'
-        required: false
-        default: 'https://t.me/kvantgram_official'
+        default: com.kvant.messenger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kvantgram-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FOSS_COMMIT: 10da5406ed92d30c6add3b25d40b2b3b6995d873
 
 jobs:
   build-kvant:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
     steps:
-      - name: 1. Очистка места на сервере
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+      - name: Скачать настройки kvantGram
+        uses: actions/checkout@v4
 
-      - name: 2. Скачивание базы Telegram-FOSS
-        run: |
-          git clone --depth 1 --recursive https://github.com/Telegram-FOSS-Team/Telegram-FOSS.git source_code
-
-      - name: 3. Авто-патч (Kvant + Авто-Прокси + API_KEYS)
+      - name: Проверить наличие ключей
         env:
-          APP_NAME: ${{ github.event.inputs.app_name || 'kvantGram' }}
-          APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
-          CHANNEL: ${{ github.event.inputs.custom_channel || 'kvantgram_official' }}
-          LINK: ${{ github.event.inputs.custom_link || 'https://t.me/kvantgram_official' }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          python3 - << 'EOF'
-          import os, re, glob
+          python3 - <<'PY'
+          import os, re
+          required = ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'ANDROID_KEYSTORE_BASE64',
+                      'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD')
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('Add repository Actions secrets: ' + ', '.join(missing))
+          if not re.fullmatch(r'[1-9][0-9]*', os.environ['TELEGRAM_API_ID']):
+              raise SystemExit('TELEGRAM_API_ID must be a positive integer')
+          if not re.fullmatch(r'[a-fA-F0-9]{32}', os.environ['TELEGRAM_API_HASH']):
+              raise SystemExit('TELEGRAM_API_HASH must contain 32 hexadecimal characters')
+          PY
 
-          root = "source_code"
-          app_name = os.environ["APP_NAME"]
-          app_id = os.environ["APP_ID"]
-          channel = os.environ["CHANNEL"].lstrip("@")
-          link = os.environ["LINK"]
-
-          # Удаление MaxPermSize для Java 17
-          for pfile in glob.glob(f"{root}/**/gradle.properties", recursive=True) + glob.glob(f"{root}/**/gradlew*", recursive=True):
-              try:
-                  with open(pfile, "r", encoding="utf-8", errors="ignore") as f:
-                      content = f.read()
-                  if "MaxPermSize" in content:
-                      new_content = content.replace("-XX:MaxPermSize=4096m", "").replace("MaxPermSize=4096m", "")
-                      with open(pfile, "w", encoding="utf-8") as f:
-                          f.write(new_content)
-              except Exception:
-                  pass
-
-          # Создаем API_KEYS и local.properties
-          with open(f"{root}/API_KEYS", "w", encoding="utf-8") as f:
-              f.write("APP_ID=4\nAPP_HASH=014b35b6184100b085b0d0572f9b5103\n")
-          with open(f"{root}/local.properties", "w", encoding="utf-8") as f:
-              f.write("sdk.dir=/usr/local/lib/android/sdk\n")
-
-          # Модуль авто-прокси без VPN
-          auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
-          auto_proxy_code = """package org.telegram.messenger;
-
-          import android.app.Activity;
-          import android.content.SharedPreferences;
-          import android.net.Uri;
-          import android.text.TextUtils;
-          import org.json.JSONArray;
-          import org.json.JSONObject;
-          import org.telegram.tgnet.ConnectionsManager;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
-          import java.net.HttpURLConnection;
-          import java.net.URL;
-          import java.util.ArrayList;
-          import java.util.List;
-          import java.util.concurrent.atomic.AtomicBoolean;
-
-          public class AutoProxyManager {
-              private static final String[] JSON_SOURCES = new String[]{
-                  "https://cdn.jsdelivr.net/gh/hookzof/socks5_list@master/tg/mtproto.json"
-              };
-              private static final String[] TXT_SOURCES = new String[]{
-                  "https://cdn.jsdelivr.net/gh/soroushmirzaei/telegram-proxies-collector@main/proxies/mtproto",
-                  "https://raw.githubusercontent.com/ALIILAPRO/MTProtoProxy/main/mtproto.txt"
-              };
-
-              private static final AtomicBoolean isRunning = new AtomicBoolean(false);
-              private static final AtomicBoolean proxyApplied = new AtomicBoolean(false);
-
-              public static void start() {
-                  if (isRunning.getAndSet(true)) return;
-                  Utilities.globalQueue.postRunnable(() -> {
-                      List<SharedConfig.ProxyInfo> list = new ArrayList<>();
-                      for (String src : JSON_SOURCES) {
-                          try {
-                              String res = fetchUrl(src);
-                              if (!TextUtils.isEmpty(res)) {
-                                  JSONArray arr = new JSONArray(res);
-                                  for (int i = 0; i < arr.length() && list.size() < 25; i++) {
-                                      JSONObject o = arr.getJSONObject(i);
-                                      String host = o.optString("host");
-                                      int port = o.optInt("port", 443);
-                                      String secret = o.optString("secret");
-                                      if (!TextUtils.isEmpty(host) && !TextUtils.isEmpty(secret)) {
-                                          list.add(new SharedConfig.ProxyInfo(host, port, "", "", secret));
-                                      }
-                                  }
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                      for (String src : TXT_SOURCES) {
-                          if (list.size() >= 30) break;
-                          try {
-                              String res = fetchUrl(src);
-                              if (!TextUtils.isEmpty(res)) {
-                                  for (String line : res.split("\\n")) {
-                                      if (list.size() >= 30) break;
-                                      line = line.trim();
-                                      if (line.startsWith("tg://proxy") || line.startsWith("https://t.me/proxy")) {
-                                          Uri u = Uri.parse(line);
-                                          String s = u.getQueryParameter("server");
-                                          String p = u.getQueryParameter("port");
-                                          String sec = u.getQueryParameter("secret");
-                                          if (!TextUtils.isEmpty(s) && !TextUtils.isEmpty(p) && !TextUtils.isEmpty(sec)) {
-                                              list.add(new SharedConfig.ProxyInfo(s, Integer.parseInt(p), "", "", sec));
-                                          }
-                                      }
-                                  }
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                      proxyApplied.set(false);
-                      for (SharedConfig.ProxyInfo p : list) {
-                          ConnectionsManager.getInstance(0).checkProxy(p.address, p.port, "", "", p.secret, time -> {
-                              if (time > 0 && time < 1500 && !proxyApplied.getAndSet(true)) {
-                                  AndroidUtilities.runOnUIThread(() -> {
-                                      SharedConfig.addProxy(p);
-                                      SharedConfig.currentProxy = p;
-                                      SharedPreferences prefs = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                      prefs.edit()
-                                          .putBoolean("proxy_enabled", true)
-                                          .putString("proxy_ip", p.address)
-                                          .putInt("proxy_port", p.port)
-                                          .putString("proxy_user", "")
-                                          .putString("proxy_pass", "")
-                                          .putString("proxy_secret", p.secret)
-                                          .apply();
-                                      ConnectionsManager.setProxySettings(true, p.address, p.port, "", "", p.secret);
-                                  });
-                              }
-                          });
-                      }
-                      isRunning.set(false);
-                  });
-              }
-
-              private static String fetchUrl(String urlStr) throws Exception {
-                  HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
-                  c.setConnectTimeout(5000);
-                  c.setReadTimeout(5000);
-                  if (c.getResponseCode() != 200) return null;
-                  BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
-                  StringBuilder sb = new StringBuilder();
-                  String l;
-                  while ((l = r.readLine()) != null) sb.append(l).append("\\n");
-                  r.close();
-                  return sb.toString();
-              }
-          }
-          """
-          with open(auto_proxy_path, "w", encoding="utf-8") as f:
-              f.write(auto_proxy_code)
-
-          shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
-          if os.path.exists(shared_cfg):
-              with open(shared_cfg, "r", encoding="utf-8") as f:
-                  sc = f.read()
-              sc = sc.replace("proxyListLoaded = true;", "proxyListLoaded = true;\n            AutoProxyManager.start();", 1)
-              with open(shared_cfg, "w", encoding="utf-8") as f:
-                  f.write(sc)
-
-          bg_path = f"{root}/TMessagesProj/build.gradle"
-          if os.path.exists(bg_path):
-              with open(bg_path, "r", encoding="utf-8") as f:
-                  bg = f.read()
-              bg = bg.replace("applicationId APP_PACKAGE", f'applicationId "{app_id}"')
-              bg = bg.replace("minifyEnabled true", "minifyEnabled false")
-              bg = bg.replace("shrinkResources true", "shrinkResources false")
-              with open(bg_path, "w", encoding="utf-8") as f:
-                  f.write(bg)
-
-          for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
-              with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
-                  txt = f.read()
-              new_txt = re.sub(r'>Telegram(\s*FOSS)?<', f'>{app_name}<', txt, flags=re.IGNORECASE)
-              if new_txt != txt:
-                  with open(xml_file, "w", encoding="utf-8") as f:
-                      f.write(new_txt)
-          EOF
-
-      - name: 4. Настройка Java 17
+      - name: Java для Android SDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: 5. Кэширование
-        uses: actions/cache@v4
+      - name: Подготовить инструменты сборки
+        uses: android-actions/setup-android@v3
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            source_code/TMessagesProj/.cxx
-          key: kvant-foss-cache-v2
+          packages: platform-tools
 
-      - name: 6. Генерация подписи APK
-        working-directory: source_code
+      - name: Установить SDK, NDK и нативные инструменты
         run: |
-          mkdir -p TMessagesProj/config
-          keytool -genkey -v -keystore TMessagesProj/config/release.keystore \
-            -alias release -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass kvant123 -keypass kvant123 \
-            -dname "CN=Kvant, OU=Mobile, O=Kvant, L=City, S=State, C=US"
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake yasm nasm pkg-config patch
+          sdkmanager 'platforms;android-33' 'build-tools;33.0.0' 'ndk;21.4.7075529' 'cmake;3.10.2.4988404'
+          python3 -m pip install 'Pillow==11.3.0'
+          echo "NDK=$ANDROID_HOME/ndk/21.4.7075529" >> "$GITHUB_ENV"
+          echo "NINJA_PATH=$(command -v ninja)" >> "$GITHUB_ENV"
 
-      - name: 7. Компиляция APK
-        working-directory: source_code
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --no-configuration-cache
-
-      - name: 8. Выгрузка APK
-        uses: actions/upload-artifact@v4
+      - name: Go для BoringSSL
+        uses: actions/setup-go@v5
         with:
-          name: Kvant-Android-APK
-          path: source_code/TMessagesProj/build/outputs/apk/**/release/*.apk
+          go-version: '1.22.12'
+          cache: false
 
-      - name: 2. Скачивание базы Telegram-FOSS
-        run: |
-          git clone --depth 1 --recursive https://github.com/Telegram-FOSS-Team/Telegram-FOSS.git source_code
-
-      - name: 3. Авто-патч (Kvant + Авто-Прокси + Создание API_KEYS)
-        env:
-          APP_NAME: ${{ github.event.inputs.app_name || 'kvantGram' }}
-          APP_ID: ${{ github.event.inputs.app_id || 'com.kvant.messenger' }}
-          CHANNEL: ${{ github.event.inputs.custom_channel || 'kvantgram_official' }}
-          LINK: ${{ github.event.inputs.custom_link || 'https://t.me/kvantgram_official' }}
-        run: |
-          python3 - << 'EOF'
-          import os, re, glob
-
-          root = "source_code"
-          app_name = os.environ["APP_NAME"]
-          app_id = os.environ["APP_ID"]
-          channel = os.environ["CHANNEL"].lstrip("@")
-          link = os.environ["LINK"]
-
-          # Удаляем устаревший флаг MaxPermSize для совместимости с Java 17
-          for pfile in glob.glob(f"{root}/**/gradle.properties", recursive=True) + glob.glob(f"{root}/**/gradlew*", recursive=True):
-              try:
-                  with open(pfile, "r", encoding="utf-8", errors="ignore") as f:
-                      content = f.read()
-                  if "MaxPermSize" in content:
-                      new_content = content.replace("-XX:MaxPermSize=4096m", "").replace("MaxPermSize=4096m", "")
-                      with open(pfile, "w", encoding="utf-8") as f:
-                          f.write(new_content)
-              except Exception:
-                  pass
-
-          # Создаем пустой/заполненный API_KEYS, чтобы сборка не вылетала с ошибкой No such file
-          api_keys_path = f"{root}/API_KEYS"
-          with open(api_keys_path, "w", encoding="utf-8") as f:
-              f.write("APP_ID=4\nAPP_HASH=014b35b6184100b085b0d0572f9b5103\n")
-
-          # Создаем local.properties на всякий случай
-          local_props = f"{root}/local.properties"
-          with open(local_props, "w", encoding="utf-8") as f:
-              f.write("sdk.dir=/usr/local/lib/android/sdk\n")
-
-          # Модуль авто-прокси без VPN
-          auto_proxy_path = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java"
-          auto_proxy_code = """package org.telegram.messenger;
-
-          import android.app.Activity;
-          import android.content.SharedPreferences;
-          import android.net.Uri;
-          import android.text.TextUtils;
-          import org.json.JSONArray;
-          import org.json.JSONObject;
-          import org.telegram.tgnet.ConnectionsManager;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
-          import java.net.HttpURLConnection;
-          import java.net.URL;
-          import java.util.ArrayList;
-          import java.util.List;
-          import java.util.concurrent.atomic.AtomicBoolean;
-
-          public class AutoProxyManager {
-              private static final String[] JSON_SOURCES = new String[]{
-                  "https://cdn.jsdelivr.net/gh/hookzof/socks5_list@master/tg/mtproto.json"
-              };
-              private static final String[] TXT_SOURCES = new String[]{
-                  "https://cdn.jsdelivr.net/gh/soroushmirzaei/telegram-proxies-collector@main/proxies/mtproto",
-                  "https://raw.githubusercontent.com/ALIILAPRO/MTProtoProxy/main/mtproto.txt"
-              };
-
-              private static final AtomicBoolean isRunning = new AtomicBoolean(false);
-              private static final AtomicBoolean proxyApplied = new AtomicBoolean(false);
-
-              public static void start() {
-                  if (isRunning.getAndSet(true)) return;
-                  Utilities.globalQueue.postRunnable(() -> {
-                      List<SharedConfig.ProxyInfo> list = new ArrayList<>();
-                      for (String src : JSON_SOURCES) {
-                          try {
-                              String res = fetchUrl(src);
-                              if (!TextUtils.isEmpty(res)) {
-                                  JSONArray arr = new JSONArray(res);
-                                  for (int i = 0; i < arr.length() && list.size() < 25; i++) {
-                                      JSONObject o = arr.getJSONObject(i);
-                                      String host = o.optString("host");
-                                      int port = o.optInt("port", 443);
-                                      String secret = o.optString("secret");
-                                      if (!TextUtils.isEmpty(host) && !TextUtils.isEmpty(secret)) {
-                                          list.add(new SharedConfig.ProxyInfo(host, port, "", "", secret));
-                                      }
-                                  }
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                      for (String src : TXT_SOURCES) {
-                          if (list.size() >= 30) break;
-                          try {
-                              String res = fetchUrl(src);
-                              if (!TextUtils.isEmpty(res)) {
-                                  for (String line : res.split("\\n")) {
-                                      if (list.size() >= 30) break;
-                                      line = line.trim();
-                                      if (line.startsWith("tg://proxy") || line.startsWith("https://t.me/proxy")) {
-                                          Uri u = Uri.parse(line);
-                                          String s = u.getQueryParameter("server");
-                                          String p = u.getQueryParameter("port");
-                                          String sec = u.getQueryParameter("secret");
-                                          if (!TextUtils.isEmpty(s) && !TextUtils.isEmpty(p) && !TextUtils.isEmpty(sec)) {
-                                              list.add(new SharedConfig.ProxyInfo(s, Integer.parseInt(p), "", "", sec));
-                                          }
-                                      }
-                                  }
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                      proxyApplied.set(false);
-                      for (SharedConfig.ProxyInfo p : list) {
-                          ConnectionsManager.getInstance(0).checkProxy(p.address, p.port, "", "", p.secret, time -> {
-                              if (time > 0 && time < 1500 && !proxyApplied.getAndSet(true)) {
-                                  AndroidUtilities.runOnUIThread(() -> {
-                                      SharedConfig.addProxy(p);
-                                      SharedConfig.currentProxy = p;
-                                      SharedPreferences prefs = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                      prefs.edit()
-                                          .putBoolean("proxy_enabled", true)
-                                          .putString("proxy_ip", p.address)
-                                          .putInt("proxy_port", p.port)
-                                          .putString("proxy_user", "")
-                                          .putString("proxy_pass", "")
-                                          .putString("proxy_secret", p.secret)
-                                          .apply();
-                                      ConnectionsManager.setProxySettings(true, p.address, p.port, "", "", p.secret);
-                                  });
-                              }
-                          });
-                      }
-                      isRunning.set(false);
-                  });
-              }
-
-              private static String fetchUrl(String urlStr) throws Exception {
-                  HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
-                  c.setConnectTimeout(5000);
-                  c.setReadTimeout(5000);
-                  if (c.getResponseCode() != 200) return null;
-                  BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
-                  StringBuilder sb = new StringBuilder();
-                  String l;
-                  while ((l = r.readLine()) != null) sb.append(l).append("\\n");
-                  r.close();
-                  return sb.toString();
-              }
-          }
-          """
-          with open(auto_proxy_path, "w", encoding="utf-8") as f:
-              f.write(auto_proxy_code)
-
-          shared_cfg = f"{root}/TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
-          if os.path.exists(shared_cfg):
-              with open(shared_cfg, "r", encoding="utf-8") as f:
-                  sc = f.read()
-              sc = sc.replace("proxyListLoaded = true;", "proxyListLoaded = true;\n            AutoProxyManager.start();", 1)
-              with open(shared_cfg, "w", encoding="utf-8") as f:
-                  f.write(sc)
-
-          bg_path = f"{root}/TMessagesProj/build.gradle"
-          if os.path.exists(bg_path):
-              with open(bg_path, "r", encoding="utf-8") as f:
-                  bg = f.read()
-              bg = bg.replace("applicationId APP_PACKAGE", f'applicationId "{app_id}"')
-              bg = bg.replace("minifyEnabled true", "minifyEnabled false")
-              bg = bg.replace("shrinkResources true", "shrinkResources false")
-              with open(bg_path, "w", encoding="utf-8") as f:
-                  f.write(bg)
-
-          for xml_file in glob.glob(f"{root}/TMessagesProj/src/main/res/values*/*.xml"):
-              with open(xml_file, "r", encoding="utf-8", errors="ignore") as f:
-                  txt = f.read()
-              new_txt = re.sub(r'>Telegram(\s*FOSS)?<', f'>{app_name}<', txt, flags=re.IGNORECASE)
-              if new_txt != txt:
-                  with open(xml_file, "w", encoding="utf-8") as f:
-                      f.write(new_txt)
-          EOF
-
-      - name: 4. Настройка Java 17
+      - name: Java для Gradle 7.2
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: '11'
 
-      - name: 5. Кэширование
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            source_code/TMessagesProj/.cxx
-          key: kvant-foss-cache-v1
-
-      - name: 6. Генерация подписи APK
-        working-directory: source_code
+      - name: Скачать зафиксированную базу Telegram-FOSS
         run: |
-          mkdir -p TMessagesProj/config
-          keytool -genkey -v -keystore TMessagesProj/config/release.keystore \
-            -alias release -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass kvant123 -keypass kvant123 \
-            -dname "CN=Kvant, OU=Mobile, O=Kvant, L=City, S=State, C=US"
+          git init source_code
+          git -C source_code remote add origin https://github.com/Telegram-FOSS-Team/Telegram-FOSS.git
+          git -C source_code fetch --depth 1 origin "$FOSS_COMMIT"
+          git -C source_code checkout --detach FETCH_HEAD
+          git -C source_code submodule update --init --recursive --depth 1
+          test "$(git -C source_code rev-parse HEAD)" = "$FOSS_COMMIT"
 
-      - name: 7. Компиляция APK (arm64)
+      - name: Применить название и логотип
+        env:
+          APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
+          APP_ID: ${{ inputs.app_id || 'com.kvant.messenger' }}
+        run: python3 scripts/brand_android.py source_code
+
+      - name: Подготовить API credentials и постоянную подпись
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          Path('source_code/API_KEYS').write_text(
+              'APP_ID=' + os.environ['TELEGRAM_API_ID'] + '\nAPP_HASH=' + os.environ['TELEGRAM_API_HASH'] + '\n')
+          Path('source_code/API_KEYS').chmod(0o600)
+          Path('source_code/local.properties').write_text('sdk.dir=' + os.environ['ANDROID_HOME'] + '\n')
+          key = Path(os.environ['RUNNER_TEMP']) / 'kvantgram-release.keystore'
+          key.write_bytes(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'], validate=True))
+          key.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('KVANT_KEYSTORE_PATH=' + str(key) + '\n')
+          PY
+
+      - name: Проверить подпись до длительной компиляции
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          keytool -list -keystore "$KVANT_KEYSTORE_PATH" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" > /dev/null
+
+      - name: Собрать FFmpeg, libvpx и BoringSSL для arm64
+        run: bash scripts/build_native.sh "$GITHUB_WORKSPACE/source_code"
+
+      - name: Собрать подписанный APK
         working-directory: source_code
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleArm64Release --no-daemon --no-configuration-cache
+          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
 
-      - name: 8. Выгрузка APK
+      - name: Проверить APK и сохранить исходники изменений
+        env:
+          APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
+          APP_ID: ${{ inputs.app_id || 'com.kvant.messenger' }}
+        run: |
+          mkdir -p dist
+          cp source_code/TMessagesProj_App/build/outputs/apk/afat/release/app.apk dist/kvantGram-arm64.apk
+          "$ANDROID_HOME/build-tools/33.0.0/apksigner" verify --verbose dist/kvantGram-arm64.apk
+          "$ANDROID_HOME/build-tools/33.0.0/aapt" dump badging dist/kvantGram-arm64.apk > dist/apk-info.txt
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          info = Path('dist/apk-info.txt').read_text()
+          assert "package: name='" + os.environ['APP_ID'] + "'" in info, 'Wrong Android package'
+          assert "application-label:'" + os.environ['APP_NAME'] + "'" in info, 'Wrong app label'
+          assert "native-code: 'arm64-v8a'" in info, 'Wrong native ABI'
+          PY
+          sha256sum dist/kvantGram-arm64.apk > dist/SHA256SUMS.txt
+          git -C source_code add -N -- TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java \
+            TMessagesProj/src/main/res/drawable-nodpi/kvant_logo.png \
+            TMessagesProj/src/main/res/drawable/kvant_foreground.xml \
+            TMessagesProj/src/main/res/values/kvant_brand.xml
+          git -C source_code diff --binary > dist/kvantGram-source.patch
+          git -C source_code submodule status --recursive > dist/upstream-submodules.txt
+          cp assets/AutoProxyManager.java dist/
+          git archive --format=zip --output=dist/kvantGram-build-source.zip HEAD
+          printf '%s\n' "$FOSS_COMMIT" > dist/upstream-commit.txt
+          echo '### kvantGram APK' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Signed Android arm64 APK is available below in kvantGram-Android-APK.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Скачать готовый APK
         uses: actions/upload-artifact@v4
         with:
-          name: Kvant-Android-APK
-          path: source_code/TMessagesProj/build/outputs/apk/**/release/*.apk
+          name: kvantGram-Android-APK
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Удалить временные ключи с runner
+        if: always()
+        run: |
+          rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore" "$GITHUB_WORKSPACE/source_code/API_KEYS"
+
