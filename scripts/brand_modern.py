@@ -13,7 +13,7 @@ REPO=Path(__file__).resolve().parents[1]
 PACKAGE='com.kvant.messenger.ayu'  # Retain the installed package and its private data.
 CHANNEL='kvantgram_official'
 GITHUB='https://github.com/filat0vvv/kvant'
-BRANDS=re.compile(r'AyuSync|AyuGram|[Ee]xtera[Gg]ram|Nagram\s*X\s*Turbo|NagramXTurbo|Nagram\s*X|NagramX|Nekogram|Nagram')
+BRANDS=re.compile(r'AyuSync|AyuGram|[Ee]xtera[Gg]ram|Nagram\s*X\s*Turbo|NagramXTurbo|Nagram\s*X|NagramX|Nekogram|NekoX|Nagram')
 
 
 def apply(root):
@@ -58,9 +58,17 @@ def apply(root):
     text=about.read_text(encoding='utf-8').replace('"nagramxturbo"','"'+CHANNEL+'"').replace('@nagramxturbo','@'+CHANNEL)
     text=text.replace('https://github.com/temporaryna/NagramXTurbo',GITHUB).replace('R.drawable.turbo_logo','R.drawable.kvant_mark')
     about.write_text(text,encoding='utf-8')
+    edit(java/'tw/nekomimi/nekogram/settings/NekoChatSettingsActivity.java','"Nekogram"','"kvantGram"')
+    for path in [java/'com/radolyn/ayugram/database/AyuData.java',java/'tw/nekomimi/nekogram/settings/TurboSettingsActivity.java']:
+        path.write_text(path.read_text(encoding='utf-8').replace('Ayu database','kvantGram history database'),encoding='utf-8')
     # Keep ghost mode directly accessible from the main custom settings page.
     settings=java/'tw/nekomimi/nekogram/settings/NekoSettingsActivity.java'
     edit(settings,'    private int generalRow;','    private int kvantGhostRow;\n    private int generalRow;')
+    edit(settings,'        menu.addItem(MENU_SYNC, R.drawable.cloud_sync, resourcesProvider);',
+         '        // KvantSync uses local files until an own sync backend is configured.')
+    edit(java/'tw/nekomimi/nekogram/helpers/CloudSettingsHelper.java',
+         '    public void doAutoSync() {\n        if (!autoSync)',
+         '    public void doAutoSync() {\n        if (true) return; // Upstream bot storage is not our service.\n        if (!autoSync)')
     edit(settings,'        generalRow = addRow();','        kvantGhostRow = addRow();\n        generalRow = addRow();')
     edit(settings,'\n        if (position == chatRow) {','''
         if (position == kvantGhostRow) {
@@ -155,6 +163,20 @@ public final class KvantBranding {
     edit(edits,'ORDER BY entityCreateDate DESC LIMIT 1','ORDER BY entityCreateDate DESC, fakeId DESC LIMIT 1')
     loader=java/'org/telegram/messenger/FileLoader.java'
     shutil.copyfile(REPO/'assets/AutoProxyManager.java',java/'org/telegram/messenger/AutoProxyManager.java')
+    proxy=java/'org/telegram/messenger/AutoProxyManager.java'
+    edit(proxy,'import org.telegram.tgnet.ConnectionsManager;',
+         'import org.telegram.tgnet.ConnectionsManager;\nimport org.telegram.utils.proxy.ProxySettings;')
+    edit(proxy,'new SharedConfig.ProxyInfo(host, port, "", "", secret)',
+         'new SharedConfig.ProxyInfo(ProxySettings.builder().setType(ProxySettings.Type.MTPROTO).setAddress(host).setPort(port).setSecret(secret).build())')
+    edit(proxy,'new SharedConfig.ProxyInfo(s, Integer.parseInt(p), "", "", sec)',
+         'new SharedConfig.ProxyInfo(ProxySettings.builder().setType(ProxySettings.Type.MTPROTO).setAddress(s).setPort(Integer.parseInt(p)).setSecret(sec).build())')
+    edit(proxy,'checkProxy(p.address, p.port, "", "", p.secret, time ->','checkProxy(p.settings, time ->')
+    text=proxy.read_text(encoding='utf-8').replace('p.address','p.settings.getAddress()').replace('p.port','p.settings.getPort()').replace('p.secret','p.settings.getSecret()')
+    text=text.replace('ConnectionsManager.setProxySettings(true, p.settings.getAddress(), p.settings.getPort(), "", "", p.settings.getSecret());',
+                      'ConnectionsManager.setProxySettings(true, p.settings);')
+    text=text.replace('prefs.edit()\n                                .putBoolean',
+                      'SharedPreferences.Editor editor = prefs.edit();\n                            p.settings.toSharedPreferences(editor);\n                            editor.putBoolean')
+    proxy.write_text(text,encoding='utf-8')
     edit(java/'org/telegram/messenger/SharedConfig.java','proxyListLoaded = true;',
          'proxyListLoaded = true;\n        AutoProxyManager.start();')
     edit(loader,'    public File getPathToMessage(TLRPC.Message message, boolean forceCache, boolean useFileDatabaseQueue) {',
@@ -195,8 +217,15 @@ public final class KvantBranding {
         path.write_text('<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/kvant_icon_background"/><foreground android:drawable="@drawable/kvant_foreground"/></adaptive-icon>')
     for path in res.glob('values*/styles.xml'):
         text=path.read_text(encoding='utf-8')
+        text=re.sub(r'<!--\s*(<item name="android:windowSplashScreenAnimatedIcon">.*?</item>)\s*-->',r'\1',text)
         text=re.sub(r'(<item name="android:windowSplashScreenAnimatedIcon">).*?(</item>)',r'\g<1>@drawable/kvant_splash_icon\2',text)
         text=re.sub(r'(<item name="android:windowSplashScreenBackground">).*?(</item>)',r'\g<1>@color/kvant_start_background\2',text)
+        def start_theme(m):
+            block=m[0].replace('<item name="android:colorBackground">@android:color/white</item>',
+                              '<item name="android:colorBackground">@color/kvant_start_background</item>')
+            return block.replace('<item name="android:windowBackground">@android:color/white</item>',
+                                 '<item name="android:windowBackground">@drawable/kvant_start_background</item>')
+        text=re.sub(r'<style name="Theme.TMessages.Start"[^>]*>.*?</style>',start_theme,text,flags=re.S)
         path.write_text(text,encoding='utf-8')
     for path in root.glob('TMessagesProj/**/AndroidManifest*.xml'):
         text=path.read_text(encoding='utf-8');text=re.sub(r'android:label="[^"]*"','android:label="@string/AppName"',text)

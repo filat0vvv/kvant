@@ -83,6 +83,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as f:f.write('KVANT_KEYSTORE_PATH='+str(key)+'\n')
           PY
       - uses: actions/cache@v4
+        id: gradle-cache
         with:
           path: |
             ~/.gradle/caches
@@ -94,6 +95,14 @@ jobs:
           chmod +x gradlew
           ./gradlew :TMessagesProj:testReleaseUnitTest --no-daemon --max-workers=2 --stacktrace
           ./gradlew :TMessagesProj:assembleRelease --no-daemon --max-workers=2 --stacktrace
+      - name: Сохранить зависимости для следующей сборки
+        if: always() && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: kvantgram-modern-v1-${{ env.UPSTREAM_COMMIT }}
       - name: Подготовить проверенный APK и исходники
         run: |
           mkdir -p dist
