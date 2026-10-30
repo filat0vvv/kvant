@@ -12,11 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e668aca54c8a32f7ef1d0e37e594e6eb77109092
+          ref: 7bb31b41119a4e20d6b757e8ed0e4053b430d1f6
       - uses: actions/download-artifact@v4
         with:
           name: kvantGram-Android15-APK
-          run-id: 41023893681
+          run-id: 41027082202
           github-token: ${{ github.token }}
           path: apk
       - name: Record through cold native initialization
@@ -32,9 +32,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_5
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -memory 4096 -cores 2 -skin 720x1280 -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: false
-          script: python3 scripts/smoke_android15.py apk/kvantGram-Android15-arm64.apk
+          script: |
+            adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher
+            adb shell am force-stop com.google.android.apps.nexuslauncher
+            python3 scripts/smoke_android15.py apk/kvantGram-Android15-arm64.apk
       - uses: actions/upload-artifact@v4
         if: always()
         with:
