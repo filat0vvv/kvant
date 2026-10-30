@@ -189,7 +189,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          disable-animations: true
+          disable-animations: false
           script: python3 scripts/smoke_android15.py apk/kvantGram-Android15-arm64.apk
       - uses: actions/upload-artifact@v4
         if: always()
