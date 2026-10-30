@@ -20,7 +20,8 @@ libs.mkdir(parents=True,exist_ok=True)
 hashes={}
 with zipfile.ZipFile(apk) as z:
     for name in z.namelist():
-        if name.startswith('lib/arm64-v8a/') and name.endswith('.so'):
+        # Other APK libraries come from dependency AARs and are merged by Gradle.
+        if name=='lib/arm64-v8a/libtmessages.45.so':
             data=z.read(name);(libs/Path(name).name).write_bytes(data)
             hashes[Path(name).name]=hashlib.sha256(data).hexdigest()
 assert 'libtmessages.45.so' in hashes
