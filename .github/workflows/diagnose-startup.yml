@@ -1,0 +1,52 @@
+name: Android 15 — диагностика запуска
+on:
+  push:
+    branches: [codex/kvantgram-startup-diagnostics]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kvantGram-Ayu-Android-APK
+          run-id: 40875134761
+          github-token: ${{ github.token }}
+          path: previous-apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: |
+            mkdir -p diagnostics
+            adb shell getprop ro.product.cpu.abilist > diagnostics/device.txt
+            adb shell getconf PAGE_SIZE >> diagnostics/device.txt
+            adb install previous-apk/kvantGram-Ayu-arm64.apk
+            adb logcat -c
+            adb shell am start -W -n com.kvant.messenger.ayu/org.telegram.ui.LaunchActivity
+            sleep 35
+            adb logcat -d -v threadtime > diagnostics/launch-logcat.txt
+            adb shell dumpsys activity activities > diagnostics/activities.txt
+            adb shell pidof com.kvant.messenger.ayu > diagnostics/pid.txt || true
+            adb shell screencap -p /sdcard/launch.png
+            adb pull /sdcard/launch.png diagnostics/launch.png
+            cat diagnostics/pid.txt
+            grep -A 35 'FATAL EXCEPTION' diagnostics/launch-logcat.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-15-startup-diagnostics
+          path: diagnostics/
+          if-no-files-found: error
