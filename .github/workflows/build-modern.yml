@@ -1,0 +1,168 @@
+name: kvantGram 13.1.1 — APK и проверка обновления
+
+on:
+  push:
+    branches: [codex/kvantgram-ayugram]
+    paths: ['scripts/brand_modern.py', 'scripts/reuse_native_modern.py', 'modern/**', '.github/workflows/build-modern.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: kvantgram-modern-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  UPSTREAM_COMMIT: 0a4372f9b4927b014a21eaa9fc8af4b4efb6af12
+
+jobs:
+  build-modern:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      NATIVE_TARGET: arm64-v8a
+      TELEGRAM_APP_ID: ${{ secrets.TELEGRAM_API_ID }}
+      TELEGRAM_APP_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ALIAS_NAME: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ALIAS_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native-библиотека из точной версии исходников
+        uses: actions/download-artifact@v4
+        with:
+          repository: temporaryna/NagramXTurbo
+          run-id: 40912825852
+          name: Staging
+          github-token: ${{ github.token }}
+          path: native-reference-modern
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Android SDK и зависимости
+        run: |
+          python3 - <<'PY'
+          import subprocess,re
+          listing=subprocess.check_output(['sdkmanager','--list','--channel=3'],text=True)
+          packages=re.findall(r'^\s*(platforms;android-37(?:\.0)?)\s*\|',listing,re.M)
+          assert packages, 'Android SDK 37 not available'
+          subprocess.run(['sdkmanager','--channel=3',packages[0],'build-tools;36.0.0','ndk;27.2.12479018'],check=True)
+          PY
+          python3 -m pip install 'Pillow==11.3.0'
+      - name: Получить закреплённые свежие исходники
+        run: |
+          git init source_code
+          git -C source_code remote add origin https://github.com/temporaryna/NagramXTurbo.git
+          git -C source_code fetch --depth 1 origin "$UPSTREAM_COMMIT"
+          git -C source_code checkout --detach FETCH_HEAD
+          git -C source_code submodule update --init --depth 1 TMessagesProj_Modules/media
+          git -C source_code/TMessagesProj_Modules/media apply "$GITHUB_WORKSPACE/source_code/docs/patches/0001-drop-legacy-kotlin-android-apply-for-AGP9-built-in-K.patch"
+          for m in container database decoder exoplayer_dash exoplayer_hls session effect muxer transformer inspector inspector_frame; do touch "source_code/TMessagesProj_Modules/media/libraries/$m/proguard-rules.txt"; done
+      - name: Брендинг, ссылки и перенос истории
+        run: |
+          python3 scripts/brand_modern.py source_code
+          python3 scripts/reuse_native_modern.py source_code native-reference-modern
+      - name: Подготовить собственную подпись
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import os,re,base64
+          from pathlib import Path
+          assert re.fullmatch(r'[1-9][0-9]*',os.environ['TELEGRAM_APP_ID'])
+          assert os.environ['TELEGRAM_APP_ID']!='6'
+          assert re.fullmatch(r'[0-9a-fA-F]{32}',os.environ['TELEGRAM_APP_HASH'])
+          for name in ['KEYSTORE_PASS','ALIAS_NAME','ALIAS_PASS']: assert os.environ.get(name), name
+          Path('source_code/local.properties').write_text('sdk.dir='+os.environ['ANDROID_HOME']+'\n')
+          key=Path(os.environ['RUNNER_TEMP'])/'kvantgram-release.keystore'
+          key.write_bytes(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'],validate=True));key.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('KVANT_KEYSTORE_PATH='+str(key)+'\n')
+          PY
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: kvantgram-modern-v1-${{ env.UPSTREAM_COMMIT }}
+      - name: Проверить миграцию и собрать APK
+        working-directory: source_code
+        run: |
+          chmod +x gradlew
+          ./gradlew :TMessagesProj:testReleaseUnitTest --no-daemon --max-workers=2 --stacktrace
+          ./gradlew :TMessagesProj:assembleRelease --no-daemon --max-workers=2 --stacktrace
+      - name: Подготовить проверенный APK и исходники
+        run: |
+          mkdir -p dist
+          APK=$(find source_code/TMessagesProj/build/outputs/apk -name '*arm64-v8a*.apk' | head -1)
+          test -s "$APK"
+          cp "$APK" dist/kvantGram-13.1.1-arm64.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist/kvantGram-13.1.1-arm64.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging dist/kvantGram-13.1.1-arm64.apk > dist/apk-info.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          info=Path('dist/apk-info.txt').read_text()
+          assert "package: name='com.kvant.messenger.ayu'" in info
+          assert "versionCode='40000'" in info
+          assert "application-label:'kvantGram'" in info
+          assert "native-code: 'arm64-v8a'" in info
+          PY
+          sha256sum dist/kvantGram-13.1.1-arm64.apk > dist/SHA256SUMS.txt
+          cp native-provenance-modern.json dist/
+          git -C source_code add -N -- TMessagesProj/src/main/java/com/kvant TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java TMessagesProj/src/main/res/drawable-nodpi/kvant_mark.png TMessagesProj/src/main/res/drawable-nodpi/kvant_logo.png TMessagesProj/src/main/res/drawable/kvant_foreground.xml TMessagesProj/src/main/res/drawable/kvant_splash_icon.xml TMessagesProj/src/main/res/drawable/kvant_start_background.xml TMessagesProj/src/main/res/values/kvant_brand.xml TMessagesProj/src/test
+          git -C source_code diff --binary > dist/kvantGram-modern-source.patch
+          git archive --format=zip --output=dist/kvantGram-modern-build-source.zip HEAD
+          printf '%s\n' "$UPSTREAM_COMMIT" > dist/upstream-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kvantGram-13.1.1-Android-APK
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kvantGram-modern-tests
+          path: |
+            source_code/TMessagesProj/build/test-results/
+            source_code/TMessagesProj/build/reports/tests/
+          if-no-files-found: ignore
+      - name: Удалить временный ключ
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore"
+
+  launch-android15:
+    needs: build-modern
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kvantGram-13.1.1-Android-APK
+          path: apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -memory 4096 -cores 2 -skin 720x1280 -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: false
+          script: |
+            adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher
+            adb shell am force-stop com.google.android.apps.nexuslauncher
+            python3 scripts/smoke_android15.py apk/kvantGram-13.1.1-arm64.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kvantGram-modern-startup-checks
+          path: startup-checks/
+          if-no-files-found: error

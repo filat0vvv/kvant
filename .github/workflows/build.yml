@@ -2,7 +2,7 @@ name: kvantGram — APK и проверки истории
 
 on:
   push:
-    branches: [codex/kvantgram-ayugram]
+    branches: [codex/kvantgram-legacy]
   workflow_dispatch:
     inputs:
       app_name:

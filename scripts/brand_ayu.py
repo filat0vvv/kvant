@@ -92,6 +92,8 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     constants=java/'com/radolyn/ayugram/AyuConstants.java'
     edit(constants,'public static String APP_NAME = "AyuGram";','public static String APP_NAME = '+json.dumps(name,ensure_ascii=False)+';')
     edit(constants,'public static String APP_GITHUB = "AyuGram/AyuGram4A";','public static String APP_GITHUB = "filat0vvv/kvant";')
+    edit(java/'com/exteragram/messenger/preferences/MainPreferencesActivity.java',
+         '"https://github.com/AyuGram/AyuGram4A"','"https://github.com/filat0vvv/kvant"')
     edit(java/'com/exteragram/messenger/utils/LocaleUtils.java','return "AyuGram";',
          'return '+json.dumps(name,ensure_ascii=False)+';')
     # Keep normal activity/deep-link routing; the animation is a removable overlay.
