@@ -1,4 +1,4 @@
-name: kvantGram Ayu — APK и проверки истории
+name: kvantGram — APK и проверки истории
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       app_name:
         description: Название приложения
         required: true
-        default: kvantGram Ayu
+        default: kvantGram
       app_id:
         description: Отдельный пакет для сохранности данных старого kvantGram
         required: true
@@ -74,7 +74,7 @@ jobs:
           test -s source_code/TMessagesProj/jni/ffmpeg/arm64-v8a/libswscale.a
       - name: Подключить интерфейс, историю и брендинг kvantGram
         env:
-          APP_NAME: ${{ inputs.app_name || 'kvantGram Ayu' }}
+          APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
           APP_ID: ${{ inputs.app_id || 'com.kvant.messenger.ayu' }}
         run: python3 scripts/brand_ayu.py source_code
       - name: Настроить собственные API и подпись
@@ -114,13 +114,13 @@ jobs:
           ./gradlew :TMessagesProj:assembleAfatRelease --no-daemon --no-configuration-cache --max-workers=2 --stacktrace
       - name: Проверить и подготовить готовый APK
         env:
-          APP_NAME: ${{ inputs.app_name || 'kvantGram Ayu' }}
+          APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
           APP_ID: ${{ inputs.app_id || 'com.kvant.messenger.ayu' }}
         run: |
           mkdir -p dist
-          cp source_code/TMessagesProj/build/outputs/apk/afat/release/kvantGram-Ayu-arm64.apk dist/
-          "$ANDROID_HOME/build-tools/33.0.1/apksigner" verify --verbose dist/kvantGram-Ayu-arm64.apk
-          "$ANDROID_HOME/build-tools/33.0.1/aapt" dump badging dist/kvantGram-Ayu-arm64.apk > dist/apk-info.txt
+          cp source_code/TMessagesProj/build/outputs/apk/afat/release/kvantGram-Android15-arm64.apk dist/
+          "$ANDROID_HOME/build-tools/33.0.1/apksigner" verify --verbose dist/kvantGram-Android15-arm64.apk
+          "$ANDROID_HOME/build-tools/33.0.1/aapt" dump badging dist/kvantGram-Android15-arm64.apk > dist/apk-info.txt
           python3 - <<'PY'
           import os
           from pathlib import Path
@@ -129,11 +129,13 @@ jobs:
           assert "application-label:'"+os.environ['APP_NAME']+"'" in info
           assert "native-code: 'arm64-v8a'" in info
           PY
-          sha256sum dist/kvantGram-Ayu-arm64.apk > dist/SHA256SUMS.txt
+          sha256sum dist/kvantGram-Android15-arm64.apk > dist/SHA256SUMS.txt
           git -C source_code add -N -- TMessagesProj/src/main/java/com/kvant \
             TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java \
             TMessagesProj/src/main/res/drawable-nodpi/kvant_logo.png \
             TMessagesProj/src/main/res/drawable/kvant_foreground.xml \
+            TMessagesProj/src/main/res/drawable/kvant_splash_icon.xml \
+            TMessagesProj/src/main/res/drawable/kvant_start_background.xml \
             TMessagesProj/src/main/res/values/kvant_brand.xml \
             TMessagesProj/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml \
             TMessagesProj/src/main/res/mipmap-*/ic_launcher_round.png \
@@ -141,11 +143,11 @@ jobs:
           git -C source_code diff --binary > dist/kvantGram-Ayu-source.patch
           git archive --format=zip --output=dist/kvantGram-Ayu-build-source.zip HEAD
           printf '%s\n' "$AYU_COMMIT" > dist/upstream-commit.txt
-          echo 'kvantGram Ayu APK is available in Artifacts. This installs separately from the Telegram-FOSS edition.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Скачать kvantGram Ayu APK
+          echo 'kvantGram APK is available in Artifacts. This installs separately from the Telegram-FOSS edition.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Скачать kvantGram APK
         uses: actions/upload-artifact@v4
         with:
-          name: kvantGram-Ayu-Android-APK
+          name: kvantGram-Android15-APK
           path: dist/
           if-no-files-found: error
           retention-days: 14
@@ -162,3 +164,35 @@ jobs:
         if: always()
         run: rm -f -- "$RUNNER_TEMP/kvantgram-release.keystore" "$GITHUB_WORKSPACE/source_code/API_KEYS"
 
+
+  startup-android15:
+    needs: build-ayu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kvantGram-Android15-APK
+          path: apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Check release launch on Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: python3 scripts/smoke_android15.py apk/kvantGram-Android15-arm64.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kvantGram-Android15-startup-checks
+          path: startup-checks/
+          if-no-files-found: error

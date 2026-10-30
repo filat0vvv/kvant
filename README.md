@@ -1,4 +1,4 @@
-# kvantGram Ayu для Android
+# kvantGram для Android
 
 Кастомный клиент **на базе AyuGram4A и exteraGram**, с собственным именем и логотипом kvantGram.
 
@@ -18,7 +18,7 @@ AyuSync оставлен выключенным по умолчанию; лок�
 
 ## Отдельная установка и версия базы
 
-Пакет: **`com.kvant.messenger.ayu`**. Имя под иконкой: **kvantGram Ayu**. Архитектура: **arm64-v8a**.
+Пакет: **`com.kvant.messenger.ayu`**. Имя под иконкой: **kvantGram**. Архитектура: **arm64-v8a**.
 Этот APK устанавливается рядом с прежним kvantGram. Не удаляйте прежнюю установку ради новой.
 
 Открытый AyuGram основан на Telegram **9.6.6**, что старше прежней базы Telegram-FOSS 10.14.3.
@@ -50,16 +50,20 @@ README AyuGram требует самостоятельно реализоват�
 `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Не помещайте значения в исходники или PR.
 
-[Actions](https://github.com/filat0vvv/kvant/actions) → **kvantGram Ayu — APK и проверки истории** → Run workflow
+[Actions](https://github.com/filat0vvv/kvant/actions) → **kvantGram — APK и проверки истории** → Run workflow
 на ветке `codex/kvantgram-ayugram`. Оставьте отдельный пакет по умолчанию.
 
 Сценарий применяет `scripts/brand_ayu.py`, запускает регрессионные тесты и собирает подписанный APK.
-Артефакты: `kvantGram-Ayu-Android-APK` и `kvantGram-Ayu-test-results`.
+Артефакты: `kvantGram-Android15-APK` и `kvantGram-Ayu-test-results`.
 
 ## Проверка
 
 Локально проверены применение патча к указанному коммиту, XML, отсутствие ссылок на закрытый подмодуль,
-сохранение разделов настройки и встраивание истории. Полная сборка и JVM/Room-тесты пока ожидают GitHub Actions.
+сохранение разделов настройки и встраивание истории. Предыдущая сборка прошла 9 JVM/Room-тестов.
+Исправление запуска убирает обращение к ненастроенному Firebase; заставка Android 12+ и все варианты
+иконок получают собственные ресурсы kvantGram. Обновление сохраняет прежний пакет и подпись,
+повышая код сборки. После сборки запускается проверка подписанного APK на эмуляторе Android 15:
+три холодных запуска и переход к вводу номера без авторизации. Логотип пользователя ожидается отдельно.
 Авторизация и реальное поведение призрака, истории, медиа и звонков требуют проверки на телефоне.
 
 ## Авторы и исходники

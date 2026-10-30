@@ -21,7 +21,7 @@ def edit(path, old, new, expected=1):
 
 
 def apply(root):
-    name = os.environ.get('APP_NAME','kvantGram Ayu')
+    name = os.environ.get('APP_NAME','kvantGram')
     package = os.environ.get('APP_ID','com.kvant.messenger.ayu')
     if not re.fullmatch(r'[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,}',package):
         raise ValueError('Invalid application ID')
@@ -41,6 +41,8 @@ def apply(root):
         cmake { path 'jni/CMakeLists.txt'; version '3.10.2' }
     }''')
     edit(root/'gradle.properties','APP_PACKAGE=com.radolyn.ayugram','APP_PACKAGE='+package)
+    # A signed update of the existing Ayu-based installation, without clearing its data.
+    edit(root/'gradle.properties','APP_VERSION_CODE=3362','APP_VERSION_CODE=3363')
     edit(root/'gradle.properties','org.gradle.unsafe.configuration-cache=true','org.gradle.unsafe.configuration-cache=false')
     edit(gradle,'storeFile file("config/extera.jks")',"storeFile file(System.getenv('KVANT_KEYSTORE_PATH'))")
     for field,key,env in [('storePassword','SIGNING_KEY_STORE_PASSWORD','ANDROID_KEYSTORE_PASSWORD'),
@@ -49,8 +51,13 @@ def apply(root):
         edit(gradle,f'{field} localProperties.getProperty("{key}")',f"{field} System.getenv('{env}')")
     for plugin in ('com.google.gms.google-services','com.google.firebase.crashlytics'):
         edit(gradle,f"apply plugin: '{plugin}'",f"// kvantGram: no upstream Firebase configuration ({plugin})")
+    # No google-services configuration is supplied by this fork. The upstream
+    # deferred Crashlytics.getInstance() otherwise throws on the main thread.
+    app=java/'org/telegram/messenger/ApplicationLoader.java'
+    edit(app,'''        ApplicationLoader app = (ApplicationLoader) ApplicationLoader.applicationContext;
+        app.initFirebase();''', '''        // kvantGram has no Firebase project; do not initialize upstream telemetry.''')
     edit(gradle,'ndk.abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"','ndk.abiFilters "arm64-v8a"')
-    edit(gradle,'outputFileName = "ayuGram-${buildType}${abi}-${formattedDate}.apk"','outputFileName = "kvantGram-Ayu-arm64.apk"')
+    edit(gradle,'outputFileName = "ayuGram-${buildType}${abi}-${formattedDate}.apk"','outputFileName = "kvantGram-Android15-arm64.apk"')
     # Pure Java/Room regression tests run after assembling; no native calls needed in the fixtures.
     with gradle.open('a',encoding='utf-8') as f:
         f.write('''
@@ -78,12 +85,15 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     locale=java/'org/telegram/messenger/LocaleController.java'
     edit(locale,'    private String getStringInternal(String key, String fallback, int res) {',
          '''    private String getStringInternal(String key, String fallback, int res) {
-        if ("Preferences".equals(key) || "AyuPreferences".equals(key)) {
+        if ("Preferences".equals(key) || "AyuPreferences".equals(key) ||
+                "AppName".equals(key) || "AppNameBeta".equals(key) || "exteraAppName".equals(key)) {
             return ApplicationLoader.applicationContext.getString(res);
         }''')
     constants=java/'com/radolyn/ayugram/AyuConstants.java'
     edit(constants,'public static String APP_NAME = "AyuGram";','public static String APP_NAME = '+json.dumps(name,ensure_ascii=False)+';')
     edit(constants,'public static String APP_GITHUB = "AyuGram/AyuGram4A";','public static String APP_GITHUB = "filat0vvv/kvant";')
+    edit(java/'com/exteragram/messenger/utils/LocaleUtils.java','return "AyuGram";',
+         'return '+json.dumps(name,ensure_ascii=False)+';')
     # Upstream OTA belongs to a different package and signing identity.
     updater=java/'com/exteragram/messenger/utils/UpdaterUtils.java'
     edit(updater,'if (BuildVars.PM_BUILD || checkingForUpdates || id != 1L ||',
@@ -200,7 +210,8 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     image=Image.open(REPO/'assets/kvantgram-logo.png').convert('RGB')
     for density,size in [('mdpi',48),('hdpi',72),('xhdpi',96),('xxhdpi',144),('xxxhdpi',192)]:
         folder=res/f'mipmap-{density}';folder.mkdir(parents=True,exist_ok=True)
-        for filename in ['ic_launcher.png','ic_launcher_round.png']+[p.name for p in folder.glob('icon_*_launcher*.png')]:
+        for filename in sorted({'ic_launcher.png','ic_launcher_round.png'} |
+                               {p.name for p in folder.glob('ic_launcher*') if p.suffix in ('.png','.webp')}):
             image.resize((size,size),Image.Resampling.LANCZOS).save(folder/filename)
     folder=res/'drawable-nodpi';folder.mkdir(parents=True,exist_ok=True)
     image.save(folder/'kvant_logo.png')
@@ -208,8 +219,22 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     (res/'values/kvant_brand.xml').write_text('<resources><color name="kvant_icon_background">#001139</color></resources>',encoding='utf-8')
     folder=res/'mipmap-anydpi-v26';folder.mkdir(parents=True,exist_ok=True)
     icon='''<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/kvant_icon_background"/><foreground android:drawable="@drawable/kvant_foreground"/></adaptive-icon>'''
-    for file in [folder/'ic_launcher.xml',folder/'ic_launcher_round.xml']+list(folder.glob('icon_*_launcher*.xml')):
+    for file in sorted({folder/'ic_launcher.xml',folder/'ic_launcher_round.xml'} | set(folder.glob('ic_launcher*.xml'))):
         file.write_text(icon,encoding='utf-8')
+    # Android 12+ uses a separate animated splash drawable, not the launcher icon.
+    # Cover both day/night configurations and earlier Android's starting window.
+    (res/'drawable/kvant_splash_icon.xml').write_text('''<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="20%"><bitmap android:src="@drawable/kvant_logo" android:gravity="fill" /></inset>''',encoding='utf-8')
+    (res/'drawable/kvant_start_background.xml').write_text('''<layer-list xmlns:android="http://schemas.android.com/apk/res/android"><item android:drawable="@color/kvant_icon_background"/><item android:width="112dp" android:height="112dp" android:gravity="center"><bitmap android:src="@drawable/kvant_logo" android:gravity="fill"/></item></layer-list>''',encoding='utf-8')
+    for path in res.glob('values*/styles.xml'):
+        text=path.read_text(encoding='utf-8')
+        text=text.replace('@drawable/etg_splash','@drawable/kvant_splash_icon')
+        text=re.sub(r'(<item name="android:windowSplashScreenBackground">).*?(</item>)',
+                    r'\g<1>@color/kvant_icon_background\2',text)
+        def starting_window(match):
+            return re.sub(r'(<item name="android:windowBackground">).*?(</item>)',
+                          r'\g<1>@drawable/kvant_start_background\2',match[0])
+        text=re.sub(r'<style name="Theme.TMessages.Start".*?</style>',starting_window,text,flags=re.S)
+        path.write_text(text,encoding='utf-8')
     tests=root/'TMessagesProj/src/test/java'
     for source in (REPO/'android-tests').rglob('*.java'):
         target=tests/source.relative_to(REPO/'android-tests');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
