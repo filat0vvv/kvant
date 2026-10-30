@@ -58,22 +58,36 @@ def apply(root):
     text=about.read_text(encoding='utf-8').replace('"nagramxturbo"','"'+CHANNEL+'"').replace('@nagramxturbo','@'+CHANNEL)
     text=text.replace('https://github.com/temporaryna/NagramXTurbo',GITHUB).replace('R.drawable.turbo_logo','R.drawable.kvant_mark')
     about.write_text(text,encoding='utf-8')
+    # Keep ghost mode directly accessible from the main custom settings page.
+    settings=java/'tw/nekomimi/nekogram/settings/NekoSettingsActivity.java'
+    edit(settings,'    private int generalRow;','    private int kvantGhostRow;\n    private int generalRow;')
+    edit(settings,'        generalRow = addRow();','        kvantGhostRow = addRow();\n        generalRow = addRow();')
+    edit(settings,'\n        if (position == chatRow) {','''
+        if (position == kvantGhostRow) {
+            presentFragment(new GhostModeActivity());
+        } else if (position == chatRow) {''')
+    edit(settings,'                    if (position == chatRow) {','''                    if (position == kvantGhostRow) {
+                        textCell.setTextAndIcon(getString(R.string.GhostMode), R.drawable.msg_permissions, true);
+                    } else if (position == chatRow) {''')
+    edit(settings,'} else if (position == chatRow || position == generalRow',
+         '} else if (position == kvantGhostRow || position == chatRow || position == generalRow')
     edit(java/'com/radolyn/ayugram/AyuConstants.java',
          'AYU_DATABASE_EXPORT = AYU_DATABASE + ".db"','AYU_DATABASE_EXPORT = "kvantgram-history.db"')
     # Brand resource text while keeping resource keys and original copyright headers.
     overrides={
         'AppName':['kvantGram','kvantGram'],'AppNameBeta':['kvantGram','kvantGram'],
-        'NekoSettings':['kvantGram settings','Настройки kvantGram'],
-        'NagramX':['kvantGram','kvantGram'],'NagramXTurbo':['kvantGram','kvantGram'],
-        'TurboChannel':['kvantGram channel','Канал kvantGram'],
-        'XChannel':['kvantGram channel','Канал kvantGram'],
-        'BackupSettings':['KvantSync · settings backup','KvantSync · копия настроек'],
-        'ImportSettings':['KvantSync · restore settings','KvantSync · восстановление'],
-        'ClearMessageDatabase':['Clear kvantGram history','Очистить историю kvantGram'],
-        'ClearMessageDatabaseNotification':['kvantGram history cleared','История kvantGram очищена'],
-        'ExportAyuDB':['Export kvantGram history','Экспорт истории kvantGram'],
-        'ImportAyuDB':['Import kvantGram history','Импорт истории kvantGram'],
-        'GhostMode':['Ghost mode · kvantGram','Призрак · kvantGram'],
+        'NekoSettings':['kvantGram settings','��������� kvantGram'],
+        'NagramX':['kvantGram','kvantGram'],
+        'NagramXTurbo':['History & tools � kvantGram','������� � ����������� kvantGram'],
+        'TurboChannel':['kvantGram channel','����� kvantGram'],
+        'XChannel':['kvantGram channel','����� kvantGram'],
+        'BackupSettings':['KvantSync � settings backup','KvantSync � ����� ��������'],
+        'ImportSettings':['KvantSync � restore settings','KvantSync � ��������������'],
+        'ClearMessageDatabase':['Clear kvantGram history','�������� ������� kvantGram'],
+        'ClearMessageDatabaseNotification':['kvantGram history cleared','������� kvantGram �������'],
+        'ExportAyuDB':['Export kvantGram history','������� ������� kvantGram'],
+        'ImportAyuDB':['Import kvantGram history','������ ������� kvantGram'],
+        'GhostMode':['Ghost mode � kvantGram','������� � kvantGram'],
     }
     records={}
     pattern=re.compile(r'(<string\s+name="([^"]+)"[^>]*>)(.*?)(</string>)',re.S)
@@ -195,7 +209,7 @@ public final class KvantBranding {
     fixture=root/'TMessagesProj/src/test/resources/kvant-schema-21.json';fixture.parent.mkdir(parents=True,exist_ok=True)
     shutil.copyfile(root/'TMessagesProj/schemas/com.radolyn.ayugram.database.AyuDatabase/21.json',fixture)
     with gradle.open('a',encoding='utf-8') as f:
-        f.write("\ndependencies { testImplementation 'junit:junit:4.13.2'; testImplementation 'org.robolectric:robolectric:4.17' }\nandroid.testOptions.unitTests.includeAndroidResources = true\nandroid.testOptions.unitTests.all { maxHeapSize = '2g' }\n")
+        f.write("\ndependencies { testImplementation 'junit:junit:4.13.2'; testImplementation 'org.robolectric:robolectric:4.17' }\nandroid.testBuildType = 'release'\nandroid.testOptions.unitTests.includeAndroidResources = true\nandroid.testOptions.unitTests.all { maxHeapSize = '2g' }\n")
     print('Applied kvantGram 13.1.1 branding, own channel and additive history upgrade')
 
 
