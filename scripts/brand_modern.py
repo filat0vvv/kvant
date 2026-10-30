@@ -191,6 +191,7 @@ public final class KvantBranding {
          '''        RestrictedLanguagesSelectActivity.checkRestrictedLanguages(false);
         com.kvant.messenger.branding.KvantStartup.show(this, frameLayout, savedInstanceState, kvantStartupIntent);''')
     intro=java/'org/telegram/ui/IntroActivity.java'
+    edit(intro,'        titles[0] = ssb;','        titles[0] = "kvantGram";')
     text=intro.read_text(encoding='utf-8').replace('R.drawable.telegram_logo','R.drawable.kvant_mark')
     text,count=re.subn(r'        TextureView textureView = new TextureView\(context\);.*?(?=        viewPager = new ViewPager\(context\);)',
         '''        android.widget.ImageView brandLogo = new android.widget.ImageView(context);
