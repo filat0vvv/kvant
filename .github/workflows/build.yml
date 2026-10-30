@@ -133,6 +133,7 @@ jobs:
           git -C source_code add -N -- TMessagesProj/src/main/java/com/kvant \
             TMessagesProj/src/main/java/org/telegram/messenger/AutoProxyManager.java \
             TMessagesProj/src/main/res/drawable-nodpi/kvant_logo.png \
+            TMessagesProj/src/main/res/drawable-nodpi/kvant_mark.png \
             TMessagesProj/src/main/res/drawable/kvant_foreground.xml \
             TMessagesProj/src/main/res/drawable/kvant_splash_icon.xml \
             TMessagesProj/src/main/res/drawable/kvant_start_background.xml \

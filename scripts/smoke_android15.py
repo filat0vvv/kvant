@@ -49,9 +49,19 @@ try:
     for launch in range(1, 4):
         adb('shell', 'am', 'force-stop', PACKAGE)
         adb('logcat', '-c')
-        print(adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/org.telegram.ui.LaunchActivity'))
+        recording = None
+        if launch == 1:
+            recording = subprocess.Popen(['adb', 'shell', 'screenrecord', '--time-limit', '12',
+                                          '/sdcard/kvant-startup.mp4'], stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL)
+            time.sleep(.5)
+        print(adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN',
+                  '-c', 'android.intent.category.LAUNCHER', '-n', PACKAGE + '/org.telegram.ui.LaunchActivity'))
         time.sleep(25 if launch == 1 else 12)
         xml = capture('cold-start-' + str(launch))
+        if recording:
+            recording.wait(timeout=20)
+            adb('pull', '/sdcard/kvant-startup.mp4', str(OUT / 'startup-animation.mp4'))
     # Reach the phone-number screen without entering credentials or sending anything.
     root = ET.fromstring(xml)
     buttons = [n for n in root.iter('node') if n.get('text', '').strip().lower() in

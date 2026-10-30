@@ -94,6 +94,22 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
     edit(constants,'public static String APP_GITHUB = "AyuGram/AyuGram4A";','public static String APP_GITHUB = "filat0vvv/kvant";')
     edit(java/'com/exteragram/messenger/utils/LocaleUtils.java','return "AyuGram";',
          'return '+json.dumps(name,ensure_ascii=False)+';')
+    # Keep normal activity/deep-link routing; the animation is a removable overlay.
+    edit(java/'org/telegram/ui/LaunchActivity.java',
+         '        RestrictedLanguagesSelectActivity.checkRestrictedLanguages(false);',
+         '''        RestrictedLanguagesSelectActivity.checkRestrictedLanguages(false);
+        com.kvant.messenger.branding.KvantStartup.show(this, frameLayout, savedInstanceState);''')
+    intro=java/'org/telegram/ui/IntroActivity.java'
+    intro_text=intro.read_text(encoding='utf-8')
+    intro_text,count=re.subn(r'        TextureView textureView = new TextureView\(context\);.*?(?=        viewPager = new ViewPager\(context\);)',
+        '''        android.widget.ImageView brandLogo = new android.widget.ImageView(context);
+        brandLogo.setImageResource(R.drawable.kvant_mark);
+        brandLogo.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        frameLayout2.addView(brandLogo, LayoutHelper.createFrame(ICON_WIDTH_DP, ICON_HEIGHT_DP, Gravity.CENTER));
+
+''',intro_text,flags=re.S)
+    if count != 1: raise RuntimeError('Upstream welcome artwork changed')
+    intro.write_text(intro_text,encoding='utf-8')
     # Upstream OTA belongs to a different package and signing identity.
     updater=java/'com/exteragram/messenger/utils/UpdaterUtils.java'
     edit(updater,'if (BuildVars.PM_BUILD || checkingForUpdates || id != 1L ||',
@@ -215,21 +231,22 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
             image.resize((size,size),Image.Resampling.LANCZOS).save(folder/filename)
     folder=res/'drawable-nodpi';folder.mkdir(parents=True,exist_ok=True)
     image.save(folder/'kvant_logo.png')
+    shutil.copyfile(REPO/'assets/kvantgram-mark.png',folder/'kvant_mark.png')
     (res/'drawable/kvant_foreground.xml').write_text('''<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="14%"><bitmap android:src="@drawable/kvant_logo" android:gravity="fill" /></inset>''',encoding='utf-8')
-    (res/'values/kvant_brand.xml').write_text('<resources><color name="kvant_icon_background">#001139</color></resources>',encoding='utf-8')
+    (res/'values/kvant_brand.xml').write_text('<resources><color name="kvant_icon_background">#0c0d10</color><color name="kvant_start_background">#001139</color></resources>',encoding='utf-8')
     folder=res/'mipmap-anydpi-v26';folder.mkdir(parents=True,exist_ok=True)
     icon='''<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/kvant_icon_background"/><foreground android:drawable="@drawable/kvant_foreground"/></adaptive-icon>'''
     for file in sorted({folder/'ic_launcher.xml',folder/'ic_launcher_round.xml'} | set(folder.glob('ic_launcher*.xml'))):
         file.write_text(icon,encoding='utf-8')
     # Android 12+ uses a separate animated splash drawable, not the launcher icon.
     # Cover both day/night configurations and earlier Android's starting window.
-    (res/'drawable/kvant_splash_icon.xml').write_text('''<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="20%"><bitmap android:src="@drawable/kvant_logo" android:gravity="fill" /></inset>''',encoding='utf-8')
-    (res/'drawable/kvant_start_background.xml').write_text('''<layer-list xmlns:android="http://schemas.android.com/apk/res/android"><item android:drawable="@color/kvant_icon_background"/><item android:width="112dp" android:height="112dp" android:gravity="center"><bitmap android:src="@drawable/kvant_logo" android:gravity="fill"/></item></layer-list>''',encoding='utf-8')
+    (res/'drawable/kvant_splash_icon.xml').write_text('''<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="20%"><bitmap android:src="@drawable/kvant_mark" android:gravity="fill" /></inset>''',encoding='utf-8')
+    (res/'drawable/kvant_start_background.xml').write_text('''<layer-list xmlns:android="http://schemas.android.com/apk/res/android"><item android:drawable="@color/kvant_start_background"/><item android:width="112dp" android:height="112dp" android:gravity="center"><bitmap android:src="@drawable/kvant_mark" android:gravity="fill"/></item></layer-list>''',encoding='utf-8')
     for path in res.glob('values*/styles.xml'):
         text=path.read_text(encoding='utf-8')
         text=text.replace('@drawable/etg_splash','@drawable/kvant_splash_icon')
         text=re.sub(r'(<item name="android:windowSplashScreenBackground">).*?(</item>)',
-                    r'\g<1>@color/kvant_icon_background\2',text)
+                    r'\g<1>@color/kvant_start_background\2',text)
         def starting_window(match):
             return re.sub(r'(<item name="android:windowBackground">).*?(</item>)',
                           r'\g<1>@drawable/kvant_start_background\2',match[0])
