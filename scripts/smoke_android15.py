@@ -51,7 +51,7 @@ try:
         adb('logcat', '-c')
         recording = None
         if launch == 1:
-            recording = subprocess.Popen(['adb', 'shell', 'screenrecord', '--time-limit', '12',
+            recording = subprocess.Popen(['adb', 'shell', 'screenrecord', '--time-limit', '30',
                                           '/sdcard/kvant-startup.mp4'], stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL)
             time.sleep(.5)
