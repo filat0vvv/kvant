@@ -84,18 +84,17 @@ def apply(root):
     # Brand resource text while keeping resource keys and original copyright headers.
     overrides={
         'AppName':['kvantGram','kvantGram'],'AppNameBeta':['kvantGram','kvantGram'],
-        'NekoSettings':['kvantGram settings','��������� kvantGram'],
-        'NagramX':['kvantGram','kvantGram'],
-        'NagramXTurbo':['History & tools � kvantGram','������� � ����������� kvantGram'],
-        'TurboChannel':['kvantGram channel','����� kvantGram'],
-        'XChannel':['kvantGram channel','����� kvantGram'],
-        'BackupSettings':['KvantSync � settings backup','KvantSync � ����� ��������'],
-        'ImportSettings':['KvantSync � restore settings','KvantSync � ��������������'],
-        'ClearMessageDatabase':['Clear kvantGram history','�������� ������� kvantGram'],
-        'ClearMessageDatabaseNotification':['kvantGram history cleared','������� kvantGram �������'],
-        'ExportAyuDB':['Export kvantGram history','������� ������� kvantGram'],
-        'ImportAyuDB':['Import kvantGram history','������ ������� kvantGram'],
-        'GhostMode':['Ghost mode � kvantGram','������� � kvantGram'],
+        'NekoSettings':['kvantGram settings','Настройки kvantGram'],
+        'NagramX':['kvantGram','kvantGram'],'NagramXTurbo':['History & tools \u00b7 kvantGram','\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0438 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u044b kvantGram'],
+        'TurboChannel':['kvantGram channel','Канал kvantGram'],
+        'XChannel':['kvantGram channel','Канал kvantGram'],
+        'BackupSettings':['KvantSync · settings backup','KvantSync · копия настроек'],
+        'ImportSettings':['KvantSync · restore settings','KvantSync · восстановление'],
+        'ClearMessageDatabase':['Clear kvantGram history','Очистить историю kvantGram'],
+        'ClearMessageDatabaseNotification':['kvantGram history cleared','История kvantGram очищена'],
+        'ExportAyuDB':['Export kvantGram history','Экспорт истории kvantGram'],
+        'ImportAyuDB':['Import kvantGram history','Импорт истории kvantGram'],
+        'GhostMode':['Ghost mode · kvantGram','Призрак · kvantGram'],
     }
     records={}
     pattern=re.compile(r'(<string\s+name="([^"]+)"[^>]*>)(.*?)(</string>)',re.S)

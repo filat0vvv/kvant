@@ -9,7 +9,9 @@ import static org.junit.Assert.*;
 
 public class LegacySnapshotsTest {
     @Test public void oldTelegram169SnapshotRetainsTextFormattingAndReply() {
-        TL_legacy_message.TL_message_layer169 old=new TL_legacy_message.TL_message_layer169();
+        TL_legacy_message.TL_message_layer169 old=new TL_legacy_message.TL_message_layer169() {
+            @Override protected void writeAttachPath(org.telegram.tgnet.OutputSerializedData stream) {}
+        };
         old.id=42;old.date=1000;old.message="old history";
         old.flags=256|128|8;
         old.peer_id=new TLRPC.TL_peerUser();old.peer_id.user_id=100;
