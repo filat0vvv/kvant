@@ -34,8 +34,7 @@ public final class KvantStartup extends View {
     private boolean removed;
     private final float[][] segments = new float[240][6];
 
-    public static void show(Activity activity, FrameLayout root, Bundle savedState) {
-        Intent intent = activity.getIntent();
+    public static void show(Activity activity, FrameLayout root, Bundle savedState, Intent intent) {
         if (shown || savedState != null || intent == null ||
                 !Intent.ACTION_MAIN.equals(intent.getAction()) ||
                 !intent.hasCategory(Intent.CATEGORY_LAUNCHER)) return;

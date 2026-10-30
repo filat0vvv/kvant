@@ -42,7 +42,7 @@ def apply(root):
     }''')
     edit(root/'gradle.properties','APP_PACKAGE=com.radolyn.ayugram','APP_PACKAGE='+package)
     # A signed update of the existing Ayu-based installation, without clearing its data.
-    edit(root/'gradle.properties','APP_VERSION_CODE=3362','APP_VERSION_CODE=3363')
+    edit(root/'gradle.properties','APP_VERSION_CODE=3362','APP_VERSION_CODE=3364')
     edit(root/'gradle.properties','org.gradle.unsafe.configuration-cache=true','org.gradle.unsafe.configuration-cache=false')
     edit(gradle,'storeFile file("config/extera.jks")',"storeFile file(System.getenv('KVANT_KEYSTORE_PATH'))")
     for field,key,env in [('storePassword','SIGNING_KEY_STORE_PASSWORD','ANDROID_KEYSTORE_PASSWORD'),
@@ -96,9 +96,13 @@ android.testOptions.unitTests.all { maxHeapSize = "2g" }
          'return '+json.dumps(name,ensure_ascii=False)+';')
     # Keep normal activity/deep-link routing; the animation is a removable overlay.
     edit(java/'org/telegram/ui/LaunchActivity.java',
+         '    protected void onCreate(Bundle savedInstanceState) {',
+         '''    protected void onCreate(Bundle savedInstanceState) {
+        final Intent kvantStartupIntent = getIntent() == null ? null : new Intent(getIntent());''')
+    edit(java/'org/telegram/ui/LaunchActivity.java',
          '        RestrictedLanguagesSelectActivity.checkRestrictedLanguages(false);',
          '''        RestrictedLanguagesSelectActivity.checkRestrictedLanguages(false);
-        com.kvant.messenger.branding.KvantStartup.show(this, frameLayout, savedInstanceState);''')
+        com.kvant.messenger.branding.KvantStartup.show(this, frameLayout, savedInstanceState, kvantStartupIntent);''')
     intro=java/'org/telegram/ui/IntroActivity.java'
     intro_text=intro.read_text(encoding='utf-8')
     intro_text,count=re.subn(r'        TextureView textureView = new TextureView\(context\);.*?(?=        viewPager = new ViewPager\(context\);)',

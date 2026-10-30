@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: kvantgram-ayu-${{ github.ref }}
   cancel-in-progress: true
@@ -77,6 +78,18 @@ jobs:
           APP_NAME: ${{ inputs.app_name || 'kvantGram' }}
           APP_ID: ${{ inputs.app_id || 'com.kvant.messenger.ayu' }}
         run: python3 scripts/brand_ayu.py source_code
+      - name: Скачать проверенные неизменённые native-библиотеки
+        id: native_reference
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: kvantGram-Android15-APK
+          run-id: 41023893681
+          github-token: ${{ github.token }}
+          path: native-reference
+      - name: Проверить соответствие и использовать native-библиотеки
+        if: steps.native_reference.outcome == 'success'
+        run: python3 scripts/reuse_native.py source_code native-reference
       - name: Настроить собственные API и подпись
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -118,6 +131,7 @@ jobs:
           APP_ID: ${{ inputs.app_id || 'com.kvant.messenger.ayu' }}
         run: |
           mkdir -p dist
+          if [ -f native-provenance.json ]; then cp native-provenance.json dist/; fi
           cp source_code/TMessagesProj/build/outputs/apk/afat/release/kvantGram-Android15-arm64.apk dist/
           "$ANDROID_HOME/build-tools/33.0.1/apksigner" verify --verbose dist/kvantGram-Android15-arm64.apk
           "$ANDROID_HOME/build-tools/33.0.1/aapt" dump badging dist/kvantGram-Android15-arm64.apk > dist/apk-info.txt
