@@ -19,6 +19,8 @@ jobs:
           run-id: 41023893681
           github-token: ${{ github.token }}
           path: apk
+      - name: Record through cold native initialization
+        run: sed -i "s/'12',/'30',/" scripts/smoke_android15.py
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
